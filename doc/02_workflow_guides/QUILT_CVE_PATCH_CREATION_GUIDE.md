@@ -48,6 +48,64 @@ make target/linux/prepare V=s
 ./tools/quilt_patch_manager_final.sh auto-patch 654b33ada4ab 950-proc-fix-UAF-in-proc_get_inode.patch
 ```
 
+#### 🔄 `auto-patch` 详细执行流程
+
+当您运行上述命令后，工具将自动执行以下四个步骤：
+
+**🔍 步骤 1/4: 自动兼容性测试**
+```
+[INFO] --- 步骤 1/4: 兼容性测试 ---
+[INFO] 测试 commit 654b33ada4ab 的补丁兼容性...
+[SUCCESS] 找到内核源码目录: /path/to/openwrt/build_dir/target-mips_24kc_musl/linux-ath79_generic/linux-5.15.162
+[INFO] 开始干跑 (dry-run) 测试...
+[SUCCESS] 🎉 补丁完全兼容！
+```
+- 自动从 `git.kernel.org` 下载原始补丁并缓存
+- 执行 `patch --dry-run` 测试兼容性
+- 如果有冲突，会显示详细的冲突文件和行号
+
+**🆕 步骤 2/4: 创建补丁并添加文件**
+```
+[INFO] --- 步骤 2/4: 创建补丁并添加文件 ---
+[INFO] 准备创建新补丁: 950-proc-fix-UAF-in-proc_get_inode.patch
+[SUCCESS] 补丁 '950-proc-fix-UAF-in-proc_get_inode.patch' 创建成功
+[INFO] 提取 commit 654b33ada4ab 涉及的文件列表...
+[SUCCESS] 找到 1 个文件，已保存到: patch_manager_work/outputs/patch_files.txt
+[SUCCESS] 批量添加 1 个文件完成。
+```
+- 自动执行 `quilt new` 创建新补丁
+- 提取补丁涉及的所有文件 (如 `fs/proc/inode.c`)
+- 使用 `quilt add` 批量添加文件到补丁管理
+
+**⏸️ 步骤 3/4: 等待手动修改**
+```
+[INFO] --- 步骤 3/4: 等待手动修改 ---
+[WARNING] 补丁已创建，文件已添加。现在是手动修改代码以解决冲突的最佳时机。
+[INFO] 修改完成后，按 Enter键继续以生成最终补丁...
+```
+- 此时工具暂停等待您的操作
+- 您可以进入内核目录手动修改代码：
+  ```bash
+  cd build_dir/target-*/linux-*/linux-*/
+  # 编辑相关文件，如: vim fs/proc/inode.c
+  # 应用您需要的修改，解决冲突或适配代码
+  ```
+- 修改完成后回到原目录按 Enter 继续
+
+**🎉 步骤 4/4: 生成最终补丁**
+```
+[INFO] --- 步骤 4/4: 生成带元数据的最终补丁 ---
+[INFO] 🔄 [核心] 刷新补丁并注入来自 commit '654b33ada4ab' 的元数据...
+[INFO] 元数据头已提取, 正在生成纯代码 diff...
+[SUCCESS] 🎉 补丁已成功生成: /path/to/patches/950-proc-fix-UAF-in-proc_get_inode.patch
+[SUCCESS] 📄 最终补丁已拷贝到: patch_manager_work/outputs/950-proc-fix-UAF-in-proc_get_inode.patch
+[SUCCESS] 🎉 自动化流程完成!
+```
+- 自动提取原始补丁的元数据 (作者、日期、描述)
+- 执行 `quilt refresh` 生成代码差异
+- 将元数据和代码差异合并成最终补丁
+- 补丁同时保存在内核目录和输出目录
+
 **工具在后台会自动完成以下所有操作:**
 1.  **查找内核目录**: 自动定位到 `build_dir/.../linux-x.x.x`。
 2.  **创建新补丁**: 自动执行 `quilt new`。
