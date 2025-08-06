@@ -2,7 +2,7 @@
 
 # OpenWrt Quilt CVE Patch Manager - Final Version
 # 功能：自动化 CVE 补丁制作流程，包含元数据合并
-# 版本: Final-v10
+# 版本: v6.0.0
 
 set -e
 set -o pipefail # 管道中的命令失败也会导致脚本退出
@@ -18,7 +18,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt CVE Patch Manager"
-VERSION="7.0.0"
+VERSION="6.0.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
