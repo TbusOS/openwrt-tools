@@ -24,6 +24,55 @@ KERNEL_GIT_URL="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
 TEMP_DIR="patch-tmp/patch_manager_$$"
 PATCH_LIST_FILE="patch_files.txt"
 PATCH_METADATA_FILE="patch_metadata.txt"
+KNOWLEDGE_BASE_DIR="patch_knowledge_base"
+
+# 缓存管理
+init_cache() {
+    mkdir -p "$ORIGINAL_PWD/$KNOWLEDGE_BASE_DIR"
+}
+
+# 写入缓存
+# $1: commit_id
+# $2: data_type (files, metadata, fixes, symbols)
+# $3: content
+write_to_cache() {
+    local commit_id="$1"
+    local data_type="$2"
+    local content="$3"
+    
+    if [[ -z "$commit_id" ]]; then
+        log_debug "Commit ID为空，跳过缓存写入"
+        return
+    fi
+    
+    local cache_dir="$ORIGINAL_PWD/$KNOWLEDGE_BASE_DIR/$commit_id"
+    mkdir -p "$cache_dir"
+    
+    # 使用heredoc来安全处理多行内容
+    cat > "$cache_dir/${data_type}.txt" <<< "$content"
+    log_debug "已将 '${data_type}' 写入到 ${commit_id} 的缓存中"
+}
+
+# 读取缓存
+# $1: commit_id
+# $2: data_type
+read_from_cache() {
+    local commit_id="$1"
+    local data_type="$2"
+    
+    if [[ -z "$commit_id" ]]; then
+        return 1
+    fi
+
+    local cache_file="$ORIGINAL_PWD/$KNOWLEDGE_BASE_DIR/$commit_id/${data_type}.txt"
+    if [[ -f "$cache_file" ]]; then
+        cat "$cache_file"
+        return 0
+    else
+        return 1
+    fi
+}
+
 
 # 调试开关 (可通过环境变量 DEBUG=1 或命令行参数 --debug 控制)
 DEBUG_MODE=${DEBUG:-false}
@@ -1131,164 +1180,222 @@ test_network() {
 
 # 抓取原始补丁 (到临时目录) - 内部版本，带重试机制
 _fetch_patch_internal() {
-    local commit_id="$1"
-    local patch_url="${KERNEL_GIT_URL}/patch/?id=${commit_id}"
-    local patch_file="$ORIGINAL_PWD/$TEMP_DIR/original_${commit_id}.patch"
-    local cache_file="$ORIGINAL_PWD/patch_cache_${commit_id}.patch"
+    local source_input="$1"
+    local commit_id_ref="$2" # 传入变量名以接收解析出的commit_id
+
+    local patch_url
+    if ! patch_url=$(_resolve_patch_url "$source_input"); then
+        log_error "无法解析补丁源: $source_input"
+        return 1
+    fi
+    
+    # 从URL或源输入中提取一个唯一标识符用于缓存
+    local cache_id
+    if [[ "$source_input" =~ ^[a-f0-9]{7,40}$ ]]; then
+        cache_id="$source_input"
+        # 更新外部变量
+        eval "$commit_id_ref=\"$source_input\""
+    else
+        # 对URL进行哈希处理以获得唯一且合法的文件名
+        cache_id=$(echo "$source_input" | sha256sum | awk '{print $1}')
+    fi
+
+    local patch_file="$ORIGINAL_PWD/$TEMP_DIR/original_${cache_id}.patch"
+    local cache_file="$ORIGINAL_PWD/patch_cache_${cache_id}.patch"
     local max_retries=3
     local retry_count=0
-    
+
     # 检查缓存文件是否存在
     if [[ -f "$cache_file" && -s "$cache_file" ]]; then
         printf "📦 ${GREEN}发现缓存补丁: $cache_file${NC}\n" >&2
         printf "📋 使用缓存文件，无需重新下载 (文件大小: $(wc -c < "$cache_file") 字节)\n" >&2
         
-        # 复制缓存文件到临时目录
         cp "$cache_file" "$patch_file"
+        
+        local extracted_commit
+        extracted_commit=$(grep -m 1 -o -E 'From [a-f0-9]{40}' "$patch_file" | awk '{print $2}')
+        if [[ -n "$extracted_commit" ]]; then
+             eval "$commit_id_ref=\"$extracted_commit\""
+        fi
+
         printf "%s" "$patch_file"
         return 0
     fi
     
-    # 显示下载进度信息（输出到stderr以便在变量捕获时显示）
     printf "正在下载: %s\n" "$patch_url" >&2
-    
-    # 快速网络连通性测试
-    printf "检查网络连通性..." >&2
-    if curl -s --connect-timeout 5 --max-time 10 "${KERNEL_GIT_URL}" > /dev/null 2>&1; then
-        printf " ✅\n" >&2
-    else
-        printf " ❌\n" >&2
-        printf "警告: git.kernel.org 无法访问，可能是网络问题\n" >&2
-        
-        # 尝试ping作为额外的网络测试
-        printf "尝试ping测试..." >&2
-        if ping -c 1 git.kernel.org > /dev/null 2>&1; then
-            printf " ✅ (DNS解析正常)\n" >&2
-        else
-            printf " ❌ (DNS解析失败)\n" >&2
-        fi
-    fi
     
     while [[ $retry_count -lt $max_retries ]]; do
         if [[ $retry_count -gt 0 ]]; then
             printf "重试 %d/%d...\n" "$retry_count" "$max_retries" >&2
         fi
         
-        # 使用curl下载，设置超时（减少超时时间避免卡住）
-        local connect_timeout=5
-        local max_timeout=15
+        local connect_timeout=10
+        local max_timeout=30
         
-        # 如果是重试，使用更宽松的设置
-        if [[ $retry_count -gt 0 ]]; then
-            connect_timeout=10
-            max_timeout=30
-            printf "使用更宽松的网络设置...\n" >&2
-        fi
-        
-        local curl_cmd="curl -f --connect-timeout $connect_timeout --max-time $max_timeout -s \"$patch_url\" -o \"$patch_file\""
-        printf "执行命令: ${CYAN}%s${NC}\n" "$curl_cmd" >&2
-        printf "尝试下载中..." >&2
-        if curl -f --connect-timeout $connect_timeout --max-time $max_timeout -s "$patch_url" -o "$patch_file" 2>/dev/null; then
-            printf " ✅\n" >&2
-            # 验证下载的文件是否有效
-            if [[ -s "$patch_file" ]]; then
-                printf "补丁文件验证成功: $(wc -c < "$patch_file") 字节\n" >&2
-                
-                # 保存到缓存
-                printf "💾 保存到缓存: $cache_file\n" >&2
-                cp "$patch_file" "$cache_file" 2>/dev/null || true
-                
-                printf "%s" "$patch_file"
-                return 0
+        # AOSP gerrit requires special handling for base64
+        if [[ "$patch_url" =~ android\.googlesource\.com ]] && [[ "$patch_url" =~ format=TEXT ]]; then
+            log_info "检测到AOSP源，将进行Base64解码..."
+            local temp_base64_file
+            temp_base64_file=$(mktemp)
+            if curl -L -f --connect-timeout $connect_timeout --max-time $max_timeout -s "$patch_url" -o "$temp_base64_file"; then
+                # Attempt to decode, but fallback if it fails or isn't base64
+                if base64 -d "$temp_base64_file" > "$patch_file" 2>/dev/null; then
+                    log_success "Base64解码成功"
+                else
+                    log_warning "Base64解码失败或不需要，使用原始文本"
+                    mv "$temp_base64_file" "$patch_file"
+                fi
             else
-                printf "警告: 下载的补丁文件为空\n" >&2
+                rm -f "$temp_base64_file"
             fi
         else
-            local curl_exit_code=$?
-            printf " 下载失败\n" >&2
-            case $curl_exit_code in
-                6)  printf "错误: 无法连接到 git.kernel.org (DNS解析失败)\n" >&2 ;;
-                7)  printf "错误: 无法连接到服务器 (连接被拒绝)\n" >&2 ;;
-                22) printf "错误: HTTP 404 - commit ID 可能无效: %s\n" "$commit_id" >&2 ;;
-                28) printf "错误: 连接超时\n" >&2 ;;
-                *)  printf "错误: 下载失败 (curl exit code: %d)\n" "$curl_exit_code" >&2 ;;
-            esac
+             curl -L -f --connect-timeout $connect_timeout --max-time $max_timeout -s "$patch_url" -o "$patch_file"
+        fi
+
+        local curl_exit_code=$?
+
+        if [[ $curl_exit_code -eq 0 ]]; then
+            if [[ -s "$patch_file" ]]; then
+                if head -1 "$patch_file" | grep -q -E "^From [a-f0-9]{40}"; then
+                    printf "✅ 补丁文件验证成功: $(wc -c < "$patch_file") 字节\n" >&2
+                    
+                    cp "$patch_file" "$cache_file"
+                    
+                    local extracted_commit
+                    extracted_commit=$(grep -m 1 -o -E 'From [a-f0-9]{40}' "$patch_file" | awk '{print $2}')
+                    if [[ -n "$extracted_commit" ]]; then
+                        eval "$commit_id_ref=\"$extracted_commit\""
+                    fi
+
+                    printf "%s" "$patch_file"
+                    return 0
+                else
+                    printf "❌ ${RED}错误: 下载的内容不是有效的补丁文件 (开头非 'From ...')${NC}\n" >&2
+                    rm -f "$patch_file"
+                    return 1
+                fi
+            else
+                printf "⚠️  警告: 下载的文件为空\n" >&2
+            fi
+        else
+            printf "❌ 下载失败 (curl exit code: %d)\n" "$curl_exit_code" >&2
         fi
         
         ((retry_count++))
-        if [[ $retry_count -lt $max_retries ]]; then
-            printf "等待 2 秒后重试...\n" >&2
-            sleep 2
-        fi
+        sleep 2
     done
     
-    printf "下载失败: 已重试 %d 次\n" "$max_retries" >&2
+    log_error "下载失败: 已重试 %d 次" "$max_retries"
     return 1
 }
 
+# 新增: 解析多种补丁源输入并返回可下载的URL
+_resolve_patch_url() {
+    local input="$1"
+    
+    if [[ "$input" =~ ^https?:// ]]; then
+        if [[ "$input" =~ github\.com/([^/]+)/([^/]+)/commit/([a-f0-9]+) ]]; then
+            local owner="${BASH_REMATCH[1]}"
+            local repo="${BASH_REMATCH[2]}"
+            local hash="${BASH_REMATCH[3]}"
+            echo "https://github.com/${owner}/${repo}/commit/${hash}.patch"
+        else
+            echo "$input"
+        fi
+        return 0
+    fi
+    
+    local prefix
+    prefix=$(echo "$input" | cut -d: -f1)
+    local value
+    value=$(echo "$input" | cut -d: -f2-)
+    
+    case "$prefix" in
+        kernel)
+            echo "${KERNEL_GIT_URL}/patch/?id=${value}"
+            return 0
+            ;;
+        github)
+            local owner_repo
+            owner_repo=$(echo "$value" | cut -d/ -f1-2)
+            local hash
+            hash=$(echo "$value" | cut -d/ -f3)
+            echo "https://github.com/${owner_repo}/commit/${hash}.patch"
+            return 0
+            ;;
+        aosp)
+            local project_path
+            project_path=$(echo "$value" | sed 's|/+|/+/|')
+            echo "https://android.googlesource.com/${project_path}?format=TEXT"
+            return 0
+            ;;
+        *)
+            if [[ "$input" =~ ^[a-f0-9]{7,40}$ ]]; then
+                echo "${KERNEL_GIT_URL}/patch/?id=${input}"
+                return 0
+            fi
+            ;;
+    esac
+    
+    log_error "无法识别的补丁源格式: $input" >&2
+    return 1
+}
+
+
 # 抓取原始补丁 (到临时目录) - 公开版本，带日志
 fetch_patch() {
-    local commit_id="$1"
-    if [[ -z "$commit_id" ]]; then
-        log_error "请提供 commit ID"
+    local source_input="$1"
+    if [[ -z "$source_input" ]]; then
+        log_error "请提供 commit ID, URL 或带前缀的源"
         return 1
     fi
     
-    log_info "抓取 commit $commit_id 的原始补丁..."
+    log_info "抓取补丁源: $source_input..."
     
     local patch_file
-    printf "\n" >&2  # 确保下载信息能够显示
-    if patch_file=$(_fetch_patch_internal "$commit_id"); then
+    local commit_id # _fetch_patch_internal会填充这个变量
+    if patch_file=$(_fetch_patch_internal "$source_input" "commit_id"); then
         log_success "补丁已下载到: $patch_file"
         log_warning "注意: 临时文件会在脚本结束时自动删除"
         printf "%s" "$patch_file"
         return 0
     else
-        log_error "无法下载补丁，请检查 commit ID: $commit_id"
+        log_error "无法下载补丁，请检查源: $source_input"
         return 1
     fi
 }
 
 # 保存原始补丁到当前目录 (新功能)
 save_patch() {
-    local commit_id="$1"
+    local source_input="$1"
     local filename="$2"
     
-    if [[ -z "$commit_id" ]]; then
-        log_error "请提供 commit ID"
+    if [[ -z "$source_input" ]]; then
+        log_error "请提供 commit ID, URL 或带前缀的源"
         return 1
     fi
     
-    # 如果没有提供文件名，使用默认命名
-    if [[ -z "$filename" ]]; then
-        filename="${commit_id}.patch"
-    fi
+    log_info "保存补丁源 $source_input 到当前目录..."
     
-    # 确保文件名以 .patch 结尾
-    if [[ ! "$filename" =~ \.patch$ ]]; then
-        filename="${filename}.patch"
-    fi
-    
-    log_info "保存 commit $commit_id 的原始补丁到当前目录..."
-    
-    local cache_file="$ORIGINAL_PWD/patch_cache_${commit_id}.patch"
-    
-    # 检查缓存文件
-    if [[ -f "$cache_file" && -s "$cache_file" ]]; then
-        log_info "📦 使用缓存补丁，直接复制到: $filename"
-        cp "$cache_file" "$filename"
-        local file_size
-        file_size=$(wc -c < "$filename")
-        log_success "原始补丁已保存到: $filename (来自缓存)"
-        log_info "文件大小: $file_size 字节"
-        log_info "文件位置: $(pwd)/$filename"
-        return 0
-    fi
-    
-    # 如果没有缓存，先下载到临时位置
-    log_info "缓存中没有找到，需要下载..."
     local patch_file
-    if patch_file=$(_fetch_patch_internal "$commit_id"); then
+    local commit_id # _fetch_patch_internal会填充这个变量
+    if patch_file=$(_fetch_patch_internal "$source_input" "commit_id"); then
+        # 如果没有提供文件名，使用解析出的commit_id或哈希来命名
+        if [[ -z "$filename" ]]; then
+            if [[ -n "$commit_id" ]]; then
+                filename="${commit_id}.patch"
+            else
+                local source_hash
+                source_hash=$(echo "$source_input" | sha256sum | awk '{print $1}')
+                filename="${source_hash:0:12}.patch"
+            fi
+        fi
+        
+        # 确保文件名以 .patch 结尾
+        if [[ ! "$filename" =~ \.patch$ ]]; then
+            filename="${filename}.patch"
+        fi
+
         # 复制到目标文件名
         cp "$patch_file" "$filename"
         local file_size
@@ -1296,34 +1403,44 @@ save_patch() {
         log_success "原始补丁已保存到: $filename"
         log_info "文件大小: $file_size 字节"
         log_info "文件位置: $(pwd)/$filename"
-        log_info "💾 同时已保存到缓存，下次使用会更快"
         return 0
     else
-        log_error "无法下载补丁，请检查 commit ID: $commit_id"
+        log_error "无法下载补丁，请检查源: $source_input"
         return 1
     fi
 }
 
 # 手动下载补丁助手（解决网络问题）
 download_patch_manual() {
-    local commit_id="$1"
+    local source_input="$1"
     
-    if [[ -z "$commit_id" ]]; then
-        log_error "请提供 commit ID"
+    if [[ -z "$source_input" ]]; then
+        log_error "请提供 commit ID, URL 或带前缀的源"
         return 1
     fi
     
-    local patch_url="${KERNEL_GIT_URL}/patch/?id=${commit_id}"
-    local cache_file="patch_cache_${commit_id}.patch"
+    local patch_url
+    if ! patch_url=$(_resolve_patch_url "$source_input"); then
+        log_error "无法解析补丁源: $source_input"
+        return 1
+    fi
+
+    local cache_id
+    if [[ "$source_input" =~ ^[a-f0-9]{7,40}$ ]]; then
+        cache_id="$source_input"
+    else
+        cache_id=$(echo "$source_input" | sha256sum | awk '{print $1}')
+    fi
+    local cache_file="patch_cache_${cache_id}.patch"
     
     printf "\n"
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     printf "${PURPLE}📥 手动下载补丁助手${NC}\n"
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     
-    # 检查是否已有缓存
     if [[ -f "$cache_file" && -s "$cache_file" ]]; then
-        local file_size=$(wc -c < "$cache_file")
+        local file_size
+        file_size=$(wc -c < "$cache_file")
         printf "${GREEN}✅ 缓存文件已存在: $cache_file${NC}\n"
         printf "   文件大小: $file_size 字节\n"
         printf "   可以直接使用其他命令了\n"
@@ -1344,7 +1461,7 @@ download_patch_manual() {
     printf "   wget -O \"$cache_file\" \"$patch_url\"\n"
     printf "\n"
     printf "${YELLOW}方法 3 - 使用curl (宽松设置):${NC}\n"
-    printf "   curl -f --connect-timeout 30 --max-time 60 -o \"$cache_file\" \"$patch_url\"\n"
+    printf "   curl -f -L --connect-timeout 30 --max-time 60 -o \"$cache_file\" \"$patch_url\"\n"
     printf "\n"
     printf "${YELLOW}方法 4 - 通过代理 (如果需要):${NC}\n"
     printf "   export http_proxy=http://your-proxy:port\n"
@@ -1356,23 +1473,100 @@ download_patch_manual() {
     printf "\n"
     printf "${CYAN}✅ 验证下载是否成功:${NC}\n"
     printf "   ls -la $cache_file\n"
-    printf "   head -1 $cache_file  # 应该显示 'From commit_id ...'\n"
+    printf "   head -1 $cache_file  # 应该显示 'From ...'\n"
     printf "\n"
     
-    # 尝试基本下载，但不重试
-    printf "${YELLOW}🔄 尝试基本下载 (无重试):${NC}\n"
-    printf "执行命令: curl -f --connect-timeout 30 --max-time 60 -o \"$cache_file\" \"$patch_url\"\n"
-    if curl -f --connect-timeout 30 --max-time 60 -o "$cache_file" "$patch_url" 2>/dev/null; then
-        if [[ -s "$cache_file" ]]; then
-            local file_size=$(wc -c < "$cache_file")
-            printf "${GREEN}🎉 下载成功! 文件大小: $file_size 字节${NC}\n"
-            printf "缓存文件已创建: $cache_file\n"
-            return 0
-        fi
-    fi
-    
-    printf "${RED}❌ 自动下载失败，请使用上述手动方法${NC}\n"
     return 1
+}
+
+# 符号/API 变更预警
+analyze_symbol_changes() {
+    local patch_file="$1"
+    local commit_id="$2"
+    shift 2
+    local files_to_check=("$@")
+    
+    log_info "开始分析补丁中的符号..."
+
+    # 从缓存读取
+    local cached_symbols
+    cached_symbols=$(read_from_cache "$commit_id" "symbols")
+    if [[ $? -eq 0 && -n "$cached_symbols" ]]; then
+        log_info "从缓存中读取到符号分析结果。"
+        # 这里可以根据需要决定是否要重新显示缓存的内容
+        return
+    fi
+
+
+    # 从补丁文件中提取所有被修改的行，并从中提取出潜在的符号
+    # 正则表达式: 匹配 C 语言中合法的标识符 (函数名, 变量名, 宏等)
+    # 排除常见的关键字和纯数字
+    local potential_symbols
+    potential_symbols=$(grep -E "^\s*[-+]" "$patch_file" | \
+        grep -v -E "(\-\-\- a/|\+\+\+ b/)" | \
+        grep -o -E "[a-zA-Z_][a-zA-Z0-9_]+" | \
+        grep -v -E "^(if|else|for|while|return|switch|case|break|continue|sizeof|typedef|struct|union|enum|const|volatile|static|extern|auto|register|goto|void|char|short|int|long|float|double|signed|unsigned|bool|true|false)$" | \
+        sort -u)
+
+    if [[ -z "$potential_symbols" ]]; then
+        log_success "未在补丁的修改内容中提取到需要分析的符号。"
+        return
+    fi
+
+    local missing_symbols=()
+    local symbol_count
+    symbol_count=$(echo "$potential_symbols" | wc -l)
+    
+    log_info "从补丁中提取到 $symbol_count 个唯一的潜在符号，开始在代码库中校验..."
+
+    local checked_count=0
+    for symbol in $potential_symbols; do
+        checked_count=$((checked_count + 1))
+        printf "  [%3d/%3d] 校验符号: %-40s ... " "$checked_count" "$symbol_count" "$symbol"
+        
+        # 在受影响的文件中搜索符号
+        local search_result
+        # 使用 -l 只输出文件名，加快速度
+        # 使用 --include 来只搜索受影响的文件
+        search_result=$(grep -l -r -w "$symbol" . --include=\*.{c,h} 2>/dev/null)
+
+        if [[ -z "$search_result" ]]; then
+            printf "${RED}❌ 未找到${NC}\n"
+            missing_symbols+=("$symbol")
+        else
+            printf "${GREEN}✅ 存在${NC}\n"
+        fi
+    done
+
+    # 将所有潜在符号写入缓存，无论它们是否缺失
+    if [[ -n "$potential_symbols" ]]; then
+        write_to_cache "$commit_id" "symbols" "$potential_symbols"
+    fi
+
+    if [[ ${#missing_symbols[@]} -gt 0 ]]; then
+        printf "\n"
+        printf "${YELLOW}╔══════════════════════════════════════════════════════════════════════╗${NC}\n"
+        printf "${YELLOW}║                  🚨 符号/API 变更预警                              ║${NC}\n"
+        printf "${YELLOW}╚══════════════════════════════════════════════════════════════════════╝${NC}\n"
+        printf "${CYAN}检测到补丁中的以下符号在当前代码库中不存在。${NC}\n"
+        printf "${CYAN}这极有可能意味着这些函数/宏/变量已经被重命名或移除，将导致补丁应用失败。${NC}\n\n"
+        
+        printf "  ${RED}可疑的缺失符号列表:${NC}\n"
+        for symbol in "${missing_symbols[@]}"; do
+            printf "    - %s\n" "$symbol"
+        done
+        
+        printf "\n"
+        printf "${YELLOW}💡 建议操作:${NC}\n"
+        printf "  1. 确认这些符号是否在您的内核版本中已经被重命名 (例如，从 a_func -> b_func)。\n"
+        printf "  2. 如果是，您需要手动修改补丁文件，将旧的符号名称替换为新的名称。\n"
+        printf "  3. 如果这些符号相关的功能已被移除或重构，您可能需要进行更复杂的代码移植。\n"
+        printf "  4. 这个检查可能存在误报，请结合上下文自行判断。\n"
+        printf "────────────────────────────────────────────────────────────────────────────\n"
+    else
+        printf "\n"
+        log_success "所有提取的符号都在代码库中被找到，无明显API变更风险。"
+    fi
 }
 
 # 🆕 测试补丁兼容性和冲突检测
@@ -1380,74 +1574,65 @@ test_patch_compatibility() {
     local input="$1"
     local debug_flag="$2"
     
-    # 检查是否启用调试模式
     if [[ "$debug_flag" == "--debug" ]]; then
         DEBUG_MODE=true
         log_debug "启用调试模式"
     fi
     
     if [[ -z "$input" ]]; then
-        log_error "请提供 commit ID 或本地补丁文件路径"
-        log_info "用法: $0 test-patch <commit_id>"
-        log_info "或者: $0 test-patch <patch_file.patch>"
+        log_error "请提供 commit ID, URL, 带前缀的源, 或本地补丁文件路径"
         return 1
     fi
     
     local commit_id=""
     local patch_file=""
-    
-    # 判断输入是 commit ID 还是本地文件
+    local source_for_fetch="$input"
+
     if [[ -f "$input" ]]; then
-        # 输入是本地文件 - 转换为绝对路径
         patch_file=$(realpath "$input")
         log_info "使用本地补丁文件: $patch_file"
+        source_for_fetch="" 
         
-        # 尝试从文件中提取 commit ID（如果有的话）
-        local extracted_commit=$(grep -E "^commit [a-f0-9]{40}" "$patch_file" | head -1 | awk '{print $2}')
+        local extracted_commit
+        extracted_commit=$(grep -m 1 -o -E 'From [a-f0-9]{40}' "$patch_file" | awk '{print $2}')
         if [[ -n "$extracted_commit" ]]; then
             commit_id="$extracted_commit"
             log_info "从补丁文件中提取到 commit ID: $commit_id"
         else
-            log_warning "无法从补丁文件中提取 commit ID，将使用文件内容进行测试"
-            # 使用文件名（去掉.patch后缀）作为标识
             commit_id=$(basename "$patch_file" .patch)
         fi
     else
-        # 输入是 commit ID
-        commit_id="$input"
-        log_info "使用 commit ID: $commit_id"
+        log_info "使用远程补丁源: $input"
     fi
     
     printf "${BLUE}╔══════════════════════════════════════════════════════════════════════╗${NC}\n"
     printf "${BLUE}║            🔍 智能补丁兼容性检测 + 文件冲突分析                      ║${NC}\n"
     printf "${BLUE}╚══════════════════════════════════════════════════════════════════════╝${NC}\n"
-    log_info "测试 commit $commit_id 的补丁兼容性..."
     printf "\n"
     
-    # 步骤1: 获取补丁文件
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    if [[ -n "$patch_file" ]]; then
+    if [[ -z "$source_for_fetch" ]]; then
         log_info "📁 步骤 1/6: 使用本地补丁文件..."
     else
         log_info "📥 步骤 1/6: 下载原始补丁..."
     fi
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     
-    if [[ -z "$patch_file" ]]; then
-        # 如果没有提供本地文件，则下载
-        if patch_file=$(_fetch_patch_internal "$commit_id"); then
+    if [[ -n "$source_for_fetch" ]]; then
+        if patch_file=$(_fetch_patch_internal "$source_for_fetch" "commit_id"); then
             log_success "补丁已下载: $patch_file"
+            log_info "解析出的 Commit ID: ${commit_id:- (未找到)}"
         else
-            log_error "无法下载补丁，请检查 commit ID: $commit_id"
+            log_error "无法下载补丁，请检查源: $source_for_fetch"
             return 1
         fi
     else
-        # 使用本地文件
-        if [[ ! -f "$patch_file" ]]; then
-            log_error "本地补丁文件不存在: $patch_file"
-            return 1
-        fi
         log_success "使用本地补丁: $patch_file"
+    fi
+    
+    if [[ -z "$commit_id" ]]; then
+        log_warning "无法确定唯一的Commit ID，冲突报告和缓存功能可能受影响"
+        commit_id=$(basename "$patch_file" .patch | cut -c 1-12)
     fi
     
     # 步骤2: 检查内核目录
@@ -1626,6 +1811,12 @@ test_patch_compatibility() {
         fi
     fi  # 结束 if [[ ${#applied_patches[@]} -eq 0 ]] 分支
 
+    # 步骤 5.5: 符号/API 变更预警
+    printf "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    log_info "🔬 步骤 5.5/6: 符号/API 变更预警..."
+    printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    analyze_symbol_changes "$patch_file" "$commit_id" "${existing_files[@]}"
+
     # 步骤6: 尝试应用补丁 (dry-run)
     printf "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     log_info "🧪 步骤 6/6: 干运行补丁测试..."
@@ -1639,12 +1830,33 @@ test_patch_compatibility() {
     printf "正在执行 patch 干运行测试...\n"
     patch_test_output=$(patch --dry-run -p1 --verbose --force --no-backup-if-mismatch < "$patch_file" 2>&1) || patch_test_result=$?
     
-    # 显示patch测试结果
+    # 如果初始尝试失败，启动智能模糊匹配重试
+    if [[ $patch_test_result -ne 0 ]]; then
+        printf "❌ ${RED}patch 干运行测试: 失败 (退出码: $patch_test_result)${NC}\n"
+        log_info "💡 启动智能模糊匹配 (-F) 重试..."
+        
+        for fuzz_level in {1..3}; do
+            printf "\n${CYAN}尝试模糊度 -F$fuzz_level...${NC}\n"
+            local temp_output
+            patch_test_output=$(patch --dry-run -p1 --verbose --force --no-backup-if-mismatch -F$fuzz_level < "$patch_file" 2>&1) || patch_test_result=$?
+            
+            if [[ $patch_test_result -eq 0 ]]; then
+                printf "✅ ${GREEN}模糊匹配成功 (使用 -F$fuzz_level)!${NC}\n"
+                # 在输出中添加一个明确的提示，告知用户这是通过模糊匹配成功的
+                patch_test_output+=$'\n\n[INFO] Patch applied successfully with fuzz factor '"$fuzz_level"
+                break # 成功，跳出循环
+            else
+                printf "❌ ${YELLOW}使用 -F$fuzz_level 仍然失败 (退出码: $patch_test_result)${NC}\n"
+            fi
+        done
+    fi
+
+    # 显示最终的patch测试结果
     if [[ $patch_test_result -eq 0 ]]; then
         printf "✅ ${GREEN}patch 干运行测试: 成功${NC}\n"
         log_debug "patch命令输出: $patch_test_output"
     else
-        printf "❌ ${RED}patch 干运行测试: 失败 (退出码: $patch_test_result)${NC}\n"
+        printf "❌ ${RED}patch 干运行测试: 最终失败 (退出码: $patch_test_result)${NC}\n"
         log_debug "patch命令详细输出: $patch_test_output"
     fi
     
@@ -1768,6 +1980,7 @@ test_patch_compatibility() {
         return 1  # 有冲突退出码
     fi
 }
+
 
 # 🆕 为报告文件生成冲突分析 (增强版)
 generate_conflict_analysis_for_report() {
@@ -2283,7 +2496,12 @@ extract_files() {
         log_info "文件列表已保存到当前目录，不会被自动删除"
         printf "\n"
         printf "文件列表:\n"
-        cat "$PATCH_LIST_FILE" | sed 's/^/  📄 /'
+        local file_list_content
+        file_list_content=$(cat "$PATCH_LIST_FILE" | sed 's/^/  📄 /')
+        echo "$file_list_content"
+
+        # 写入缓存
+        write_to_cache "$commit_id" "files" "$(cat $PATCH_LIST_FILE)"
     else
         log_warning "未找到文件，可能是补丁格式问题"
         log_info "显示补丁内容前20行进行调试:"
@@ -2372,21 +2590,20 @@ add_files() {
 
 # 提取补丁元数据
 extract_metadata() {
-    local commit_id="$1"
-    if [[ -z "$commit_id" ]]; then
-        log_error "请提供 commit ID"
+    local source_input="$1"
+    if [[ -z "$source_input" ]]; then
+        log_error "请提供 commit ID, URL 或带前缀的源"
         return 1
     fi
     
-    log_info "提取 commit $commit_id 的元数据..."
+    log_info "提取补丁源 $source_input 的元数据..."
     
-    log_info "抓取 commit $commit_id 的原始补丁..."
     local patch_file
-    if patch_file=$(_fetch_patch_internal "$commit_id"); then
+    local commit_id
+    if patch_file=$(_fetch_patch_internal "$source_input" "commit_id"); then
         log_success "补丁已下载到: $patch_file"
-        log_warning "注意: 临时文件会在脚本结束时自动删除"
     else
-        log_error "无法下载补丁，请检查 commit ID: $commit_id"
+        log_error "无法下载补丁，请检查源: $source_input"
         return 1
     fi
     
@@ -2395,27 +2612,18 @@ extract_metadata() {
         return 1
     fi
     
-    # 生成元数据文件 - 只包含原始patch元数据
+    # ... (元数据提取逻辑保持不变)
     {
-        # 提取 From 行
         grep "^From: " "$patch_file" | head -1
-        
-        # 提取 Date 行
         grep "^Date: " "$patch_file" | head -1
-        
-        # 提取 Subject 行
         grep "^Subject: " "$patch_file" | head -1
-        
         echo ""
-        
-        # 提取补丁描述部分 (Subject 之后到 diff 之前的内容)
         local in_description=false
         while IFS= read -r line; do
             if [[ "$line" =~ ^Subject: ]]; then
                 in_description=true
                 continue
             fi
-            
             if [[ "$in_description" == true ]]; then
                 if [[ "$line" =~ ^(diff\ --git|---|^\+\+\+|^Index:) ]]; then
                     break
@@ -2423,19 +2631,55 @@ extract_metadata() {
                 echo "$line"
             fi
         done < "$patch_file"
-        
         echo ""
-        
-        # 提取签名行
         grep -E "^(Signed-off-by|Cc|Fixes|Reported-by|Tested-by|Acked-by|Reviewed-by): " "$patch_file" 2>/dev/null
         
     } > "$PATCH_METADATA_FILE"
-    
+
     log_success "元数据已保存到: $PATCH_METADATA_FILE"
     log_info "元数据文件已保存到当前目录，不会被自动删除"
     printf "\n"
     printf "元数据预览:\n"
     head -30 "$PATCH_METADATA_FILE" | sed 's/^/  /'
+    
+    # 写入缓存
+    local metadata_content
+    metadata_content=$(cat "$PATCH_METADATA_FILE")
+    write_to_cache "$commit_id" "metadata" "$metadata_content"
+
+    local fixes_content
+    fixes_content=$(grep "^Fixes: " "$PATCH_METADATA_FILE")
+    if [[ -n "$fixes_content" ]]; then
+        write_to_cache "$commit_id" "fixes" "$fixes_content"
+    fi
+
+    # 智能依赖提醒
+    if [[ -n "$fixes_content" ]]; then
+        printf "\n"
+        printf "${YELLOW}╔══════════════════════════════════════════════════════════════════════╗${NC}\n"
+        printf "${YELLOW}║            ⚠️  智能依赖提醒 (SVN 环境)                             ║${NC}\n"
+        printf "${YELLOW}╚══════════════════════════════════════════════════════════════════════╝${NC}\n"
+        printf "${CYAN}检测到此补丁包含 'Fixes:' 标签，表明它依赖于另一个提交。${NC}\n"
+        printf "${CYAN}在SVN管理的环境中，无法自动检查此依赖，请您手动关注：${NC}\n\n"
+        
+        # 提取并显示所有 Fixes 标签
+        echo "$fixes_content" | while IFS= read -r line; do
+            local fixes_commit
+            fixes_commit=$(echo "$line" | awk '{print $2}')
+            local fixes_summary
+            fixes_summary=$(echo "$line" | cut -d' ' -f3-)
+            printf "  - **依赖Commit**: ${PURPLE}%s${NC}\n" "$fixes_commit"
+            printf "    **Commit主题**: %s\n" "$fixes_summary"
+        done
+        
+        printf "\n"
+        printf "${YELLOW}💡 建议操作:${NC}\n"
+        printf "  1. 检查依赖的Commit对应的补丁是否已经在本分支中应用。\n"
+        printf "  2. 如果没有，您可能需要先移植并应用依赖的补丁。\n"
+        printf "  3. 使用 '${TOOL_NAME} save <commit_id>' 下载依赖的补丁进行分析。\n"
+        printf "────────────────────────────────────────────────────────────────────────────\n"
+    fi
+    
     return 0
 }
 
@@ -3350,6 +3594,9 @@ integrate_metadata() {
 
 # 主函数
 main() {
+    # 初始化知识库缓存
+    init_cache
+
     # 检查参数
     if [[ $# -eq 0 ]]; then
         print_help
