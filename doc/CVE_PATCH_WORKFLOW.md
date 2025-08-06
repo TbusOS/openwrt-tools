@@ -1,60 +1,75 @@
-# OpenWrt CVE 补丁制作标准流程
+# OpenWrt CVE 补丁制作标准流程 (v6.0 工具版)
 
 ## 概述
-本文档介绍在 OpenWrt 框架下制作 Linux 内核 CVE 补丁的标准流程，确保补丁包含完整的原始作者信息和正确的格式。
+
+本文档介绍在 OpenWrt 框架下制作 Linux 内核 CVE 补丁的**新版标准流程**。该流程基于 `quilt_patch_manager_final.sh` v6.0+ 版本，旨在通过自动化工具取代繁琐的手动操作，确保补丁制作的效率和规范性。
 
 ## 示例 CVE
-- **CVE 链接**: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?id=654b33ada4ab5e926cd9c570196fefa7bec7c1df
-- **问题**: proc 文件系统中的 UAF (Use-After-Free) 漏洞
-- **作者**: Ye Bin <yebin10@huawei.com>
-- **日期**: 2025-03-01 15:06:24 +0300
 
-## 标准制作流程
+- **CVE**: `proc: fix UAF in proc_get_inode()`
+- **Commit ID**: `654b33ada4ab5e926cd9c570196fefa7bec7c1df`
 
-### 1. 获取原始 CVE 补丁信息
+## 新版标准制作流程 (v6.0+)
+
+旧的手动流程（手动下载、手动修改、手动生成补丁、手动粘贴头部）已被淘汰。新版标准流程的核心是使用 `auto-patch` 命令。
+
+### 步骤 1: 准备环境
+
+在 OpenWrt 根目录下，确保内核源码已解压。
+
 ```bash
-# 下载原始补丁内容
-curl -s "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/patch/?id=654b33ada4ab5e926cd9c570196fefa7bec7c1df" > cve_original.patch
-
-# 分析补丁头部信息
-head -20 cve_original.patch
-
-# 查看影响的文件列表
-grep "^diff --git\|^---\|^+++" cve_original.patch
-```
-
-### 2. 准备内核源码环境
-```bash
-# 在 OpenWrt 环境中展开内核源码
+# 在 OpenWrt 源码根目录
 make target/linux/prepare V=s
-
-# 或者强制展开（在 macOS 等环境中）
-FORCE=1 make target/linux/prepare V=s
 ```
 
-### 3. 手动应用补丁修改
+### 步骤 2: (可选但推荐) 运行兼容性测试
+
+在制作任何补丁前，先用工具的 `test-patch` 功能检查其与当前内核的兼容性。
+
 ```bash
-# 进入内核源码目录
-cd build_dir/target-*/linux-*/linux-*
-
-# 根据 CVE 补丁内容手动修改相关文件
-# 例如：修改 fs/proc/generic.c, fs/proc/inode.c 等
+# 在 OpenWrt 根目录运行
+./tools/quilt_patch_manager_final.sh test-patch 654b33ada4ab
 ```
+> 工具会给出详细报告，告知是否存在文件缺失或代码冲突。
 
-### 4. 生成 OpenWrt 格式补丁
+### 步骤 3: 执行一键式补丁制作
+
+使用 `auto-patch` 命令完成绝大部分工作。
+
 ```bash
-# 使用 quilt 或 git 生成补丁
-quilt new 950-proc-fix-UAF-in-proc_get_inode.patch
-quilt add fs/proc/generic.c fs/proc/inode.c fs/proc/internal.h include/linux/proc_fs.h
-# 进行修改...
-quilt refresh
-
-# 或者使用 git diff 生成
-git diff > ../950-proc-fix-UAF-in-proc_get_inode.patch
+# 在 OpenWrt 根目录运行
+./tools/quilt_patch_manager_final.sh auto-patch 654b33ada4ab 950-proc-fix-UAF-in-proc_get_inode.patch
 ```
 
-### 5. 添加完整的补丁头部信息
-确保补丁包含以下信息：
+工具会自动处理：
+- 创建 quilt 补丁
+- 添加所有相关文件
+- **暂停并等待用户进行必要的手动修改** (如果 `test-patch` 提示有冲突)
+
+### 步骤 4: 生成并获取最终补丁
+
+当您根据提示完成手动修改后（如果需要），按 `Enter` 键，工具将：
+- 自动生成补丁 (`quilt refresh`)。
+- **自动注入完整的元数据头** (作者、日期、提交信息等)。
+- 将最终成品拷贝到 `output/` 目录。
+
+### 步骤 5: 部署补丁
+
+将 `output/` 目录中生成的规范化补丁，拷贝到目标平台的补丁目录。
+
+```bash
+# 示例
+cp output/950-proc-fix-UAF-in-proc_get_inode.patch target/linux/imx/patches-6.6/
+```
+
+### 步骤 6: 验证
+
+您可以直接查看最终生成的补丁文件，确认其头部信息是否完整。
+
+```bash
+cat output/950-proc-fix-UAF-in-proc_get_inode.patch | head
+```
+**预期输出应包含:**
 ```patch
 From 654b33ada4ab5e926cd9c570196fefa7bec7c1df Mon Sep 17 00:00:00 2001
 From: Ye Bin <yebin10@huawei.com>
@@ -62,62 +77,17 @@ Date: Sat, 1 Mar 2025 15:06:24 +0300
 Subject: [PATCH] proc: fix UAF in proc_get_inode()
 
 [完整的漏洞描述和修复说明]
+...
+```
 
-Signed-off-by: Ye Bin <yebin10@huawei.com>
-Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+## 补丁制作要点
+
+1.  **自动化优先**: 始终优先使用 `auto-patch` 命令，避免手动操作引入的错误。
+2.  **元数据完整性**: 新工具自动保证 `From:`, `Date:`, `Subject:` 等元数据的完整性，这是 CVE 补丁的强制要求。
+3.  **命名规范**: 遵循 OpenWrt 的补丁命名规范（如 `950-` 前缀用于安全补丁）。
+4.  **先测试再制作**: `test-patch` 是保证补丁质量的关键第一步。
+5.  **产物隔离**: 所有中间文件和最终产物都在 `output/` 目录，保持工作区整洁。
+
 ---
- fs/proc/generic.c         | 10 ++++++++++
- fs/proc/inode.c           |  6 +++---
- fs/proc/internal.h        | 14 ++++++++++++++
- include/linux/proc_fs.h   |  7 +++++--
- 4 files changed, 31 insertions(+), 6 deletions(-)
-```
-
-### 6. 放置补丁文件
-```bash
-# 将补丁放置到正确的目录
-cp 950-proc-fix-UAF-in-proc_get_inode.patch target/linux/<platform>/patches-<kernel_version>/
-
-# 例如：
-cp 950-proc-fix-UAF-in-proc_get_inode.patch target/linux/imx/patches-6.6/
-```
-
-### 7. 验证补丁
-```bash
-# 使用补丁管理工具验证
-./patch_helper.sh view 950-proc-fix-UAF-in-proc_get_inode.patch
-
-# 或者直接查看
-cat target/linux/imx/patches-6.6/950-proc-fix-UAF-in-proc_get_inode.patch
-```
-
-## 补丁命名规范
-- 使用数字前缀表示优先级：
-  - 000-099: 架构相关的关键补丁
-  - 100-199: 平台特定补丁
-  - 900-999: CVE 安全补丁
-- 描述性文件名：`950-proc-fix-UAF-in-proc_get_inode.patch`
-
-## 注意事项
-1. **保留原始作者信息**：必须包含完整的作者姓名、邮箱和时间戳
-2. **完整的描述**：保留原始的漏洞描述和修复说明
-3. **处理冲突**：如果补丁应用时有冲突，需要手动解决并测试
-4. **版本适配**：确保补丁适用于当前 OpenWrt 使用的内核版本
-5. **测试验证**：应用补丁后进行编译和功能测试
-
-## 常用命令参考
-```bash
-# 列出现有补丁
-ls -la target/linux/<platform>/patches-<version>/
-
-# 应用单个补丁测试
-patch -p1 < target/linux/<platform>/patches-<version>/950-*.patch
-
-# 撤销补丁
-patch -R -p1 < target/linux/<platform>/patches-<version>/950-*.patch
-```
-
-## 生成的示例补丁
-参见：`target/linux/imx/patches-6.6/950-proc-fix-UAF-in-proc_get_inode.patch`
-
-该补丁修复了 proc 文件系统中的 Use-After-Free 漏洞，包含完整的原始作者信息和详细的修复说明。
+**文档版本**: 2.0 (v6.0 工具版)
+**更新时间**: 2024-08-05

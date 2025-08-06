@@ -1,235 +1,113 @@
-# 使用 Quilt 在 OpenWrt 框架下创建 CVE 补丁完整指南
+# 使用 v6.0 补丁工具在 OpenWrt 中创建 CVE 补丁 (重构版)
 
 ## 📋 概述
 
-本文档详细记录了如何在 OpenWrt 框架下使用 quilt 工具创建 Linux 内核 CVE 补丁的完整过程。以 [CVE: proc: fix UAF in proc_get_inode()](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?id=654b33ada4ab5e926cd9c570196fefa7bec7c1df) 为例。
+本文档将演示如何使用**新版 v6.0 补丁管理工具**，以一种高度自动化的方式在 OpenWrt 框架下创建 Linux 内核 CVE 补丁。我们将彻底告别繁琐的手动 `quilt` 命令。
+
+我们将以 [CVE: proc: fix UAF in proc_get_inode()](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?id=654b33ada4ab5e926cd9c570196fefa7bec7c1df) 为例。
 
 ## 🎯 CVE 信息
 
-- **CVE 描述**: proc: fix UAF in proc_get_inode()
-- **作者**: Ye Bin <yebin10@huawei.com>
-- **提交时间**: Sat, 1 Mar 2025 15:06:24 +0300
-- **提交者**: Andrew Morton <akpm@linux-foundation.org>
-- **提交 ID**: 654b33ada4ab5e926cd9c570196fefa7bec7c1df
-- **原始补丁**: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?id=654b33ada4ab5e926cd9c570196fefa7bec7c1df
+- **CVE 描述**: `proc: fix UAF in proc_get_inode()`
+- **提交 ID**: `654b33ada4ab5e926cd9c570196fefa7bec7c1df`
+- **补丁名称 (示例)**: `950-proc-fix-UAF-in-proc_get_inode.patch`
 
-## 🛠️ 环境准备
+## 🚀 新版工作流程 (v6.0)
 
-### 1. 工具要求
-```bash
-# 安装 quilt 工具
-brew install quilt
+新版工具的核心是 `auto-patch` 命令，它将过去繁杂的步骤整合为一体。您不再需要手动进入内核目录，也不再需要手动执行 `quilt new`、`quilt add` 或 `quilt refresh`。
 
-# 验证安装
-quilt --version
-```
+### 步骤 1: 环境准备 (OpenWrt 根目录)
 
-### 2. OpenWrt 环境
-- **OpenWrt 版本**: 主线版本
-- **目标平台**: imx (i.MX6UL)
-- **内核版本**: 6.6.100
-- **工作目录**: `/Users/sky/linux-kernel/openwrt/openwrt-source/openwrt`
-
-## 📝 详细操作步骤
-
-### 步骤 1: 环境检查
+确保您的 OpenWrt 环境已准备就绪。最关键的一步是确保内核源码已经解压。
 
 ```bash
-# 切换到 OpenWrt 目录
-cd /Users/sky/linux-kernel/openwrt/openwrt-source/openwrt
+# 切换到 OpenWrt 源码根目录
+cd /path/to/openwrt
 
-# 确保内核源码已解压
+# 确保内核源码已解压 (如果尚未操作)
 make target/linux/prepare V=s
-
-# 进入内核源码目录
-cd build_dir/target-arm_cortex-a7+neon-vfpv4_musl_eabi/linux-imx_cortexa7/linux-6.6.100/
 ```
 
-**执行结果**: 
-- 内核源码目录: `build_dir/target-arm_cortex-a7+neon-vfpv4_musl_eabi/linux-imx_cortexa7/linux-6.6.100/`
-- 当前位置确认成功
+### 步骤 2: (可选但推荐) 补丁兼容性测试
 
-### 步骤 2: 创建新补丁
+在正式制作补丁前，先用 `test-patch` 命令检查该 CVE 补丁与您当前内核版本的兼容性。
 
 ```bash
-# 创建新的 CVE 补丁
-quilt new 950-proc-fix-UAF-in-proc_get_inode.patch
+# 在 OpenWrt 根目录直接运行
+./tools/quilt_patch_manager_final.sh test-patch 654b33ada4ab
 ```
+工具会自动分析并给出报告：是否兼容、是否存在文件冲突等。
+
+### 步骤 3: 一键制作 CVE 补丁 (`auto-patch`)
+
+这是制作补丁的**核心步骤**。只需一行命令，工具即可完成所有后台工作。
+
+```bash
+# 在 OpenWrt 根目录直接运行
+# 用法: ./script.sh auto-patch <commit_id> <patch_name>
+./tools/quilt_patch_manager_final.sh auto-patch 654b33ada4ab 950-proc-fix-UAF-in-proc_get_inode.patch
+```
+
+**工具在后台会自动完成以下所有操作:**
+1.  **查找内核目录**: 自动定位到 `build_dir/.../linux-x.x.x`。
+2.  **创建新补丁**: 自动执行 `quilt new`。
+3.  **添加文件**: 自动下载原始补丁，解析涉及的文件，并执行 `quilt add`。
+
+### 步骤 4: 等待手动修改 (如果需要)
+
+在完成上述自动化步骤后，脚本会暂停并显示以下信息：
+> `补丁已创建，文件已添加。现在是手动修改代码以解决冲突的最佳时机。`
+> `修改完成后，按 Enter 键继续以生成最终补丁...`
+
+此时，如果 `test-patch` 报告了冲突，或者您需要对补丁进行适配，您可以：
+1.  打开一个新的终端。
+2.  `cd` 进入内核源码目录（路径在 `auto-patch` 的输出日志中可以看到）。
+3.  手动编辑需要修改的文件。
+
+如果您在上游找到的补丁是完全兼容的，那么**通常不需要任何手动修改**。
+
+### 步骤 5: 生成最终补丁
+
+在您完成手动修改（或无需修改）后，回到运行脚本的终端，直接按 `Enter` 键。
+
+工具会自动执行 `refresh-with-header`，完成以下操作：
+1.  **生成补丁**: 执行 `quilt refresh` 生成代码的 diff。
+2.  **注入元数据**: **自动**从原始 commit 抓取作者、日期、提交信息等完整的元数据，并将其注入到补丁文件的头部。
+3.  **拷贝补丁**: 将最终生成的、包含完整元数据的补丁文件拷贝到 OpenWrt 根目录下的 `output/` 文件夹中。
 
 **执行结果**:
-```
-Patch patches/950-proc-fix-UAF-in-proc_get_inode.patch is now on top
-```
+您会在 `output/` 目录下找到最终的补丁文件 `950-proc-fix-UAF-in-proc_get_inode.patch`。
 
-**说明**: 
-- 使用 `950-` 前缀表示这是一个高优先级的安全补丁
-- 补丁名称包含 CVE 的核心描述
+### 步骤 6: 部署补丁
 
-### 步骤 3: 添加要修改的文件
+最后，将生成好的补丁从 `output` 目录拷贝到您的目标补丁目录。
 
 ```bash
-# 添加 CVE 补丁涉及的所有文件
-quilt add fs/proc/generic.c
-quilt add fs/proc/inode.c  
-quilt add fs/proc/internal.h
-quilt add include/linux/proc_fs.h
+# 示例
+cp output/950-proc-fix-UAF-in-proc_get_inode.patch target/linux/imx/patches-6.6/
 ```
 
-**执行结果**:
-```
-File fs/proc/generic.c added to patch patches/950-proc-fix-UAF-in-proc_get_inode.patch
-File fs/proc/inode.c added to patch patches/950-proc-fix-UAF-in-proc_get_inode.patch
-File fs/proc/internal.h added to patch patches/950-proc-fix-UAF-in-proc_get_inode.patch
-File include/linux/proc_fs.h added to patch patches/950-proc-fix-UAF-in-proc_get_inode.patch
-```
+## ✨ 新旧流程对比
 
-### 步骤 4: 源码修改
-
-**注意**: 在本例中，OpenWrt 使用的 Linux 6.6.100 内核已经包含了此 CVE 的修复。
-
-#### 4.1 原始 CVE 应包含的修改内容
-
-**fs/proc/generic.c** 中的 `pde_set_flags` 函数应添加:
-```c
-static void pde_set_flags(struct proc_dir_entry *pde)
-{
-    if (pde->proc_ops->proc_flags & PROC_ENTRY_PERMANENT)
-        pde->flags |= PROC_ENTRY_PERMANENT;
-    // 新增以下内容
-    if (pde->proc_ops->proc_read_iter)
-        pde->flags |= PROC_ENTRY_proc_read_iter;
-#ifdef CONFIG_COMPAT
-    if (pde->proc_ops->proc_compat_ioctl)
-        pde->flags |= PROC_ENTRY_proc_compat_ioctl;
-#endif
-}
-```
-
-#### 4.2 实际执行的修改 (演示用)
-
-```bash
-# 添加 CVE 说明注释
-sed -i.bak 's/static void pde_set_flags/\/\* CVE fix: proc: fix UAF in proc_get_inode() - commit 654b33ada4ab \*\/\nstatic void pde_set_flags/' fs/proc/generic.c
-```
-
-### 步骤 5: 生成补丁
-
-```bash
-# 使用 quilt refresh 生成补丁
-quilt refresh
-```
-
-**执行结果**:
-```
-Refreshed patch patches/950-proc-fix-UAF-in-proc_get_inode.patch
-```
-
-### 步骤 6: 添加原始 CVE 元数据
-
-```bash
-# 手动编辑补丁文件，添加完整的 CVE 信息
-cat > patches/950-proc-fix-UAF-in-proc_get_inode.patch << 'EOF_PATCH'
-From 654b33ada4ab5e926cd9c570196fefa7bec7c1df Mon Sep 17 00:00:00 2001
-From: Ye Bin <yebin10@huawei.com>
-Date: Sat, 1 Mar 2025 15:06:24 +0300
-Subject: [PATCH] proc: fix UAF in proc_get_inode()
-
-Fix race between rmmod and /proc/XXX's inode instantiation.
-
-The bug is that pde->proc_ops don't belong to /proc, it belongs to a
-module, therefore dereferencing it after /proc entry has been registered
-is a bug unless use_pde/unuse_pde() pair has been used.
-
-Signed-off-by: Ye Bin <yebin10@huawei.com>
-Cc: stable@vger.kernel.org
-Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
-
---- linux-6.6.100.orig/fs/proc/generic.c
-+++ linux-6.6.100/fs/proc/generic.c
-@@ -557,6 +557,7 @@ struct proc_dir_entry *proc_create_reg(c
- 	return p;
- }
- 
-+/* CVE fix: proc: fix UAF in proc_get_inode() - commit 654b33ada4ab */
- static void pde_set_flags(struct proc_dir_entry *pde)
- {
- 	if (pde->proc_ops->proc_flags & PROC_ENTRY_PERMANENT)
-EOF_PATCH
-```
-
-### 步骤 7: 部署补丁到 OpenWrt
-
-```bash
-# 返回 OpenWrt 根目录
-cd ../../../../../
-
-# 复制补丁到 OpenWrt 补丁目录
-cp build_dir/target-arm_cortex-a7+neon-vfpv4_musl_eabi/linux-imx_cortexa7/linux-6.6.100/patches/950-proc-fix-UAF-in-proc_get_inode.patch target/linux/imx/patches-6.6/
-```
-
-**最终补丁位置**: `target/linux/imx/patches-6.6/950-proc-fix-UAF-in-proc_get_inode.patch`
-
-## 📊 执行结果总结
-
-### 生成的文件
-- **补丁文件**: `950-proc-fix-UAF-in-proc_get_inode.patch`
-- **文件大小**: 1595 字节
-- **位置**: `target/linux/imx/patches-6.6/950-proc-fix-UAF-in-proc_get_inode.patch`
+| 环节 | 旧流程 (手动 Quilt) | 新流程 (v6.0 工具) | 优势 |
+| :--- | :--- | :--- | :--- |
+| **目录切换** | `cd build_dir/.../linux-x.x.x` | 在 OpenWrt 根目录执行 | 简化操作 |
+| **创建补丁** | `quilt new ...` | `auto-patch` 自动完成 | 自动化 |
+| **添加文件** | `quilt add file1`, `quilt add file2`... | `auto-patch` 自动完成 | 自动化，防遗漏 |
+| **代码修改** | 手动修改 | 手动修改 | (相同) |
+| **生成补丁** | `quilt refresh` | `auto-patch` 流程中按回车即可 | 自动化 |
+| **元数据** | 手动打开文件，复制粘贴 | `auto-patch` 自动注入 | **核心优势**，保证信息完整无误 |
+| **最终产物** | 在内核 `patches` 目录 | 在 `output` 目录，清晰隔离 | 易于管理 |
 
 ## ✅ 补丁元数据确认
 
-### 包含的原始 CVE 信息
-- ✅ **作者**: Ye Bin <yebin10@huawei.com>
-- ✅ **时间戳**: Sat, 1 Mar 2025 15:06:24 +0300
-- ✅ **提交者**: Andrew Morton <akpm@linux-foundation.org>
-- ✅ **提交 ID**: 654b33ada4ab5e926cd9c570196fefa7bec7c1df
-- ✅ **完整描述**: 包含 UAF 漏洞的详细解释和修复原理
-- ✅ **Signed-off-by**: 包含原始的签名信息
+使用新工具生成的补丁，会自动包含所有必需的元数据，无需手动检查和添加：
 
-## 🔍 关键学习要点
-
-### 1. Quilt 工作流程
-1. **新建补丁**: `quilt new <patch-name>`
-2. **添加文件**: `quilt add <file1> <file2> ...`
-3. **修改代码**: 直接编辑文件
-4. **生成补丁**: `quilt refresh`
-
-### 2. OpenWrt 补丁命名规范
-- **编号**: 950- (高优先级安全补丁)
-- **描述**: 包含 CVE 核心信息
-- **位置**: `target/linux/<platform>/patches-<kernel-version>/`
-
-### 3. CVE 补丁要求
-- 必须包含原始作者信息
-- 必须包含完整的时间戳
-- 必须包含详细的漏洞描述
-- 必须包含修复原理说明
-
-## 📚 相关命令参考
-
-### Quilt 常用命令
-```bash
-quilt new <patch-name>          # 创建新补丁
-quilt add <file>                # 添加文件到补丁
-quilt edit <file>               # 编辑文件
-quilt refresh                   # 刷新补丁
-quilt series                    # 显示补丁系列
-quilt applied                   # 显示已应用的补丁
-quilt top                       # 显示当前补丁
-quilt pop                       # 撤销补丁
-quilt push                      # 应用补丁
-```
-
-### OpenWrt 补丁管理
-```bash
-make target/linux/refresh V=s   # 刷新所有补丁
-make target/linux/update V=s    # 更新补丁
-make target/linux/prepare V=s   # 准备内核并应用补丁
-```
+- ✅ **作者**: `From: Ye Bin <yebin10@huawei.com>`
+- ✅ **时间戳**: `Date: Sat, 1 Mar 2025 15:06:24 +0300`
+- ✅ **提交信息**: 完整的原始提交信息
+- ✅ **签名信息**: `Signed-off-by` 等
 
 ---
-
-**文档版本**: 1.0  
-**创建时间**: 2025-08-04  
-**创建环境**: macOS + OpenWrt 主线版本 + Linux 6.6.100  
-**作者**: OpenWrt 内核补丁制作流程记录
+**文档版本**: 2.0 (v6.0 工具版)  
+**更新时间**: 2024-08-05
