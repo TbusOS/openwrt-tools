@@ -1,10 +1,19 @@
 #!/bin/bash
+# 版本: v8.0.0 (Git风格快照系统重大版本 - 混合架构与高性能)
 
-# OpenWrt Quilt CVE Patch Manager
-# 功能：自动化 CVE 补丁制作流程，包含元数据合并
-# 版本: v7.0.0 (最终重构稳定版)
+# --- 全局变量与初始化 ---
+# 获取脚本所在目录的绝对路径，确保路径引用的健壮性
+# https://stackoverflow.com/questions/59895/how-to-get-the-source-directory-of-a-bash-script-from-within-the-script-itself
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$SCRIPT_DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
 
-set -e
+# --- 全局配置 ---
+# set -e # 在调试路径问题时暂时禁用
 set -o pipefail # 管道中的命令失败也会导致脚本退出
 
 # 颜色定义
@@ -17,14 +26,15 @@ PURPLE=$'\033[0;35m'
 NC=$'\033[0m'
 
 # 工具信息
-TOOL_NAME="OpenWrt Quilt CVE Patch Manager"
-VERSION="7.0.0"
+TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
+VERSION="8.0.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
 SESSION_TMP_DIR_PATTERN="$MAIN_WORK_DIR/session_tmp/patch_manager_$$"
 CACHE_DIR="$MAIN_WORK_DIR/cache"
 OUTPUT_DIR="$MAIN_WORK_DIR/outputs"
+SNAPSHOT_FILE="$MAIN_WORK_DIR/snapshot.manifest"
 
 # 基础配置
 KERNEL_GIT_URL="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
@@ -74,30 +84,41 @@ print_help() {
 
     printf "${PURPLE}■ 典型工作流程 (推荐) ■\n"
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    printf "假设要为 commit ${CYAN}abcde123${NC} 制作一个名为 ${CYAN}999-my-fix.patch${NC} 的补丁:\n\n"
+    printf "支持使用 ${CYAN}commit-id${NC} 或 ${CYAN}本地补丁文件路径${NC} 作为输入。\n\n"
+    printf "示例 1: 使用 commit ${CYAN}abcde123${NC} 创建名为 ${CYAN}999-my-fix.patch${NC} 的补丁:\n"
     printf "  1. (可选) 测试兼容性: %s ${CYAN}test-patch abcde123${NC}\n" "$(basename "$0")"
     printf "  2. 创建新补丁:        %s ${CYAN}create-patch 999-my-fix.patch${NC}\n" "$(basename "$0")"
     printf "  3. 提取并添加文件:    %s ${CYAN}extract-files abcde123${NC} && %s ${CYAN}add-files patch_files.txt${NC}\n" "$(basename "$0")" "$(basename "$0")"
     printf "  4. 手动修改代码...\n"
     printf "  5. 生成最终补丁:      %s ${PURPLE}refresh-with-header abcde123${NC}\n\n" "$(basename "$0")"
+    printf "示例 2: 使用本地文件 ${CYAN}/path/to/cve.patch${NC} 作为基础:\n"
+    printf "  - 测试: %s ${CYAN}test-patch /path/to/cve.patch${NC}\n" "$(basename "$0")"
+    printf "  - 提取: %s ${CYAN}extract-files /path/to/cve.patch${NC}\n\n" "$(basename "$0")"
+    
     printf "补丁文件将生成在内核的 ${GREEN}patches/${NC} 目录, 并自动拷贝一份到 ${GREEN}%s/${NC} 中。\n" "$OUTPUT_DIR"
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
     printf "${GREEN}■ 命令列表 ■${NC}\n"
     
     printf "\n${YELLOW}>> 准备与分析 (可在任何目录运行)${NC}\n"
-    printf "  ${CYAN}%-26s${NC} %s\n" "test-patch <commit>" "【核心】测试补丁兼容性, 生成智能冲突分析报告。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "fetch <commit>" "下载原始补丁到缓存, 并打印路径。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "save <commit> [name]" "保存原始补丁到 ${OUTPUT_DIR} 供查阅。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "extract-files <commit>" "提取补丁影响的文件列表到 ${OUTPUT_DIR}/patch_files.txt。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "extract-metadata <commit>" "提取补丁元数据 (作者, 描述等) 到 ${OUTPUT_DIR}/patch_metadata.txt。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "test-patch <id|file>" "【核心】测试补丁兼容性, 生成智能冲突分析报告。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "fetch <id|file>" "下载或复制原始补丁到缓存, 并打印路径。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "save <id|file> [name]" "保存原始补丁到 ${OUTPUT_DIR} 供查阅。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "extract-files <id|file>" "提取补丁影响的文件列表到 ${OUTPUT_DIR}/patch_files.txt。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "extract-metadata <id|file>" "提取补丁元数据 (作者, 描述等) 到 ${OUTPUT_DIR}/patch_metadata.txt。"
 
     printf "\n${YELLOW}>> 核心补丁操作 (自动查找内核目录)${NC}\n"
     printf "  ${CYAN}%-26s${NC} %s\n" "create-patch <name>" "创建一个新的空 quilt 补丁。"
     printf "  ${CYAN}%-26s${NC} %s\n" "add-files <file_list>" "从文件列表批量添加文件到当前 quilt 补丁。"
     printf "  ${CYAN}%-26s${NC} %s\n" "refresh" "【标准】刷新补丁, 生成纯代码 diff, 并拷贝到输出目录。"
-    printf "  ${PURPLE}%-26s${NC} %s\n" "refresh-with-header <commit>" "【核心】刷新并注入元数据, 生成最终补丁, 并拷贝到输出目录。"
-    printf "  ${GREEN}%-26s${NC} %s\n" "auto-patch <commit> <name>" "【全自动】执行完整流程 (test, create, add, refresh-with-header)。"
+    printf "  ${PURPLE}%-26s${NC} %s\n" "refresh-with-header <id|file>" "【核心】刷新并注入元数据, 生成最终补丁, 并拷贝到输出目录。"
+    printf "  ${GREEN}%-26s${NC} %s\n" "auto-patch <id|file> <name>" "【全自动】执行完整流程 (test, create, add, refresh-with-header)。"
+
+    printf "\n${YELLOW}>> 全局差异快照 (类 Git 功能, 可在任何目录运行)${NC}\n"
+    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-create [dir]" "为指定目录(默认当前)创建快照, 作为后续对比的基准。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-diff [dir]" "与快照对比, 找出指定目录(默认当前)下所有变更。"
+    printf "  ${PURPLE}%-26s${NC} %s\n" "snapshot-diff > files.txt" "【推荐用法】将所有新增和修改的文件列表输出到文件。"
+
 
     printf "\n${YELLOW}>> Quilt 状态查询 (自动查找内核目录)${NC}\n"
     printf "  ${CYAN}%-26s${NC} %s\n" "status" "显示补丁总体状态 (总数/已应用/未应用)。"
@@ -207,13 +228,17 @@ find_openwrt_patches_dir() {
         return 1
     fi
 
-    # 3. 构建并返回 patches 目录的路径
-    local patches_dir="$openwrt_root/target/linux/$selected_target_dir/patches"
-    if [[ -d "$patches_dir" ]]; then
+    # 3. 构建并返回 patches 目录的路径 (支持 patches-x.x 格式)
+    local target_arch_dir="$openwrt_root/target/linux/$selected_target_dir"
+    local patches_dir
+    # 查找所有 patches* 目录, 按版本号反向排序并取第一个, 从而优先选择版本最高的
+    patches_dir=$(find "$target_arch_dir" -maxdepth 1 -type d -name 'patches*' | sort -Vr | head -n 1)
+
+    if [[ -n "$patches_dir" ]] && [[ -d "$patches_dir" ]]; then
         echo "$patches_dir"
         return 0
     else
-        log_warning "在已选架构 '$selected_target_dir' 中未找到 'patches' 目录。" >&2
+        log_warning "在已选架构 '$selected_target_dir' 中未找到 'patches*' 目录。" >&2
         return 1
     fi
 }
@@ -230,9 +255,21 @@ create_temp_dir() {
     fi
 }
 
-# 抓取原始补丁 (内部函数)
+# (内部函数) 统一获取补丁文件
+# 接受 commit_id 或本地补丁文件路径
+# 返回值: patch_file_path
+# 退出码: 0=新下载成功, 1=失败, 2=缓存命中, 3=本地文件
 _fetch_patch_internal() {
-    local commit_id="$1"
+    local identifier="$1"
+    
+    # 检查 identifier 是否是一个存在且不为空的文件路径
+    if [[ -f "$identifier" ]] && [[ -s "$identifier" ]]; then
+        realpath "$identifier"
+        return 3 # 3 = local file
+    fi
+    
+    # 如果不是文件，则假定为 commit_id，并使用下载/缓存逻辑
+    local commit_id="$identifier"
     local patch_url="${KERNEL_GIT_URL}/patch/?id=${commit_id}"
     local patch_file="$ORIGINAL_PWD/$CACHE_DIR/original_${commit_id}.patch"
 
@@ -242,7 +279,7 @@ _fetch_patch_internal() {
     fi
 
     if curl -s -f "$patch_url" -o "$patch_file" && [[ -s "$patch_file" ]]; then
-                printf "%s" "$patch_file"
+        printf "%s" "$patch_file"
         return 0 # 0 = downloaded
     else
         [[ -f "$patch_file" ]] && rm -f "$patch_file"
@@ -252,15 +289,15 @@ _fetch_patch_internal() {
 
 # (公开) 抓取原始补丁
 fetch_patch() {
-    local commit_id="$1"
-    [[ -z "$commit_id" ]] && { log_error "请提供 commit ID"; return 1; }
+    local identifier="$1"
+    [[ -z "$identifier" ]] && { log_error "请提供 commit ID 或补丁文件路径"; return 1; }
     
-    log_info "抓取 commit $commit_id 的原始补丁..."
+    log_info "获取 '$identifier' 的补丁..."
     
     local patch_file
     local fetch_result
     set +e
-    patch_file=$(_fetch_patch_internal "$commit_id")
+    patch_file=$(_fetch_patch_internal "$identifier")
     fetch_result=$?
     set -e
     
@@ -268,36 +305,44 @@ fetch_patch() {
         log_success "补丁已下载并缓存到: $patch_file"
     elif [[ $fetch_result -eq 2 ]]; then
         log_success "使用已缓存的补丁: $patch_file"
+    elif [[ $fetch_result -eq 3 ]]; then
+        log_success "使用本地补丁文件: $patch_file"
     else
-        log_error "无法下载补丁，请检查 commit ID: $commit_id"
+        log_error "无法找到补丁。请检查 commit ID 或文件路径: $identifier"
         return 1
     fi
 }
 
 # 保存原始补丁到输出目录
 save_patch() {
-    local commit_id="$1"
+    local identifier="$1"
     local filename="$2"
-    [[ -z "$commit_id" ]] && { log_error "请提供 commit ID"; return 1; }
+    [[ -z "$identifier" ]] && { log_error "请提供 commit ID 或补丁文件路径"; return 1; }
     
-    [[ -z "$filename" ]] && filename="${commit_id}.patch"
+    if [[ -z "$filename" ]]; then
+        if [[ -f "$identifier" ]]; then
+            filename=$(basename "$identifier")
+        else
+            filename="${identifier}.patch"
+        fi
+    fi
     [[ ! "$filename" =~ \.patch$ ]] && filename="${filename}.patch"
     
     local output_path="$ORIGINAL_PWD/$OUTPUT_DIR/$filename"
 
-    log_info "保存 commit $commit_id 的原始补丁到输出目录..."
+    log_info "保存 '$identifier' 的原始补丁到输出目录..."
     
     local patch_file
     set +e
-    patch_file=$(_fetch_patch_internal "$commit_id")
+    patch_file=$(_fetch_patch_internal "$identifier")
     local fetch_result=$?
     set -e
 
-    if [[ $fetch_result -eq 0 ]] || [[ $fetch_result -eq 2 ]]; then
+    if [[ $fetch_result -eq 0 ]] || [[ $fetch_result -eq 2 ]] || [[ $fetch_result -eq 3 ]]; then
         cp "$patch_file" "$output_path"
         log_success "原始补丁已保存到: $output_path"
     else
-        log_error "无法获取补丁: $commit_id"
+        log_error "无法获取补丁: $identifier"
         return 1
     fi
 }
@@ -314,7 +359,7 @@ analyze_patch_conflicts_v7() {
     {
         printf "\n\n"
         printf "${PURPLE}=======================================================================\n"
-        printf "          智 能 冲 突 分 析 报 告 (Smart Conflict Analysis v7.0)\n"
+        printf "          智 能 冲 突 分 析 报 告 (Smart Conflict Analysis v7.3)\n"
         printf "=======================================================================${NC}\n"
     } >> "$final_report_file"
 
@@ -456,27 +501,32 @@ analyze_patch_conflicts_v7() {
 
 # 测试补丁兼容性
 test_patch_compatibility() {
-    local commit_id="$1"
-    [[ -z "$commit_id" ]] && { log_error "请提供 commit ID"; return 1; }
+    local identifier="$1"
+    [[ -z "$identifier" ]] && { log_error "请提供 commit ID 或补丁文件路径"; return 1; }
 
-    log_info "测试 commit $commit_id 的补丁兼容性..."
+    log_info "测试 '$identifier' 的补丁兼容性..."
     
     # 步骤 1: 获取补丁
     log_info "  -> 步骤 1/3: 获取补丁文件..."
-    local potential_patch_file="$ORIGINAL_PWD/$CACHE_DIR/original_${commit_id}.patch"
-    local patch_url="${KERNEL_GIT_URL}/patch/?id=${commit_id}"
     local patch_file
     local fetch_result
-
-    if [[ -f "$potential_patch_file" ]] && [[ -s "$potential_patch_file" ]]; then
-        log_info "     检测到本地缓存, 将直接使用。"
+    
+    # 打印用户友好的信息
+    if [[ -f "$identifier" ]]; then
+        log_info "     准备使用本地文件: $identifier"
     else
-        log_info "     本地无缓存, 准备从网络下载..."
-        printf "       ${CYAN}命令: curl -fL -o \"%s\" \\\n             \"%s\"${NC}\n" "$potential_patch_file" "$patch_url"
+        local potential_patch_file="$ORIGINAL_PWD/$CACHE_DIR/original_${identifier}.patch"
+        if [[ -f "$potential_patch_file" ]] && [[ -s "$potential_patch_file" ]]; then
+            log_info "     检测到 commit '$identifier' 的本地缓存, 将直接使用。"
+        else
+            log_info "     本地无缓存, 准备从网络下载 commit '$identifier'..."
+            local patch_url="${KERNEL_GIT_URL}/patch/?id=${identifier}"
+            printf "       ${CYAN}命令: curl -fL -o \"%s\" \\\n             \"%s\"${NC}\n" "$potential_patch_file" "$patch_url"
+        fi
     fi
     
     set +e
-    patch_file=$(_fetch_patch_internal "$commit_id")
+    patch_file=$(_fetch_patch_internal "$identifier")
     fetch_result=$?
     set -e
     
@@ -484,10 +534,13 @@ test_patch_compatibility() {
         log_success "     补丁已成功下载并缓存。"
         printf "       ${CYAN}保存至: %s${NC}\n" "$patch_file"
     elif [[ $fetch_result -eq 2 ]]; then
-        log_success "     成功使用已缓存的补丁:"
+        log_success "     成功使用已缓存的补丁。"
+        printf "       ${CYAN}路径: %s${NC}\n" "$patch_file"
+    elif [[ $fetch_result -eq 3 ]]; then
+        log_success "     成功读取本地补丁文件。"
         printf "       ${CYAN}路径: %s${NC}\n" "$patch_file"
     else
-        log_error "无法下载或找到补丁，请检查 Commit ID 或网络连接: $commit_id"
+        log_error "无法下载或找到补丁，请检查 Commit ID/文件路径或网络连接: $identifier"
         return 1
     fi
 
@@ -568,8 +621,13 @@ test_patch_compatibility() {
         cd "$kernel_source_dir" || exit 1
         log_info "     开始干跑 (dry-run) 测试..."
         
-        local short_commit_id=${commit_id:0:7}
-        local final_report_file="$ORIGINAL_PWD/$OUTPUT_DIR/test-patch-report-${short_commit_id}.log"
+        local report_name
+        if [[ -f "$identifier" ]]; then
+            report_name=$(basename "$identifier" .patch)
+        else
+            report_name=${identifier:0:7}
+        fi
+        local final_report_file="$ORIGINAL_PWD/$OUTPUT_DIR/test-patch-report-${report_name}.log"
         local temp_log_file
         temp_log_file=$(mktemp "$ORIGINAL_PWD/$SESSION_TMP_DIR_PATTERN/patch_output.XXXXXX")
 
@@ -600,19 +658,19 @@ test_patch_compatibility() {
 
 # 提取补丁涉及的文件列表
 extract_files() {
-    local commit_id="$1"
-    [[ -z "$commit_id" ]] && { log_error "请提供 commit ID"; return 1; }
+    local identifier="$1"
+    [[ -z "$identifier" ]] && { log_error "请提供 commit ID 或补丁文件路径"; return 1; }
     
-    log_info "提取 commit $commit_id 涉及的文件列表..."
+    log_info "提取 '$identifier' 涉及的文件列表..."
     
     local patch_file
     set +e
-    patch_file=$(_fetch_patch_internal "$commit_id")
+    patch_file=$(_fetch_patch_internal "$identifier")
     local fetch_result=$?
     set -e
     
     if [[ $fetch_result -eq 1 ]]; then
-        log_error "无法获取或找到有效的补丁文件 for $commit_id"; return 1
+        log_error "无法获取或找到有效的补丁文件 for '$identifier'"; return 1
     fi
     
     local output_path="$ORIGINAL_PWD/$OUTPUT_DIR/$PATCH_LIST_FILE"
@@ -632,23 +690,27 @@ extract_files() {
 
 # 【仅供查阅】提取补丁元数据
 extract_metadata() {
-    local commit_id="$1"
-    [[ -z "$commit_id" ]] && { log_error "请提供 commit ID"; return 1; }
+    local identifier="$1"
+    [[ -z "$identifier" ]] && { log_error "请提供 commit ID 或补丁文件路径"; return 1; }
     
-    log_info "提取 commit $commit_id 的元数据 (仅供查阅)..."
+    log_info "提取 '$identifier' 的元数据 (仅供查阅)..."
     
     local patch_file
     set +e
-    patch_file=$(_fetch_patch_internal "$commit_id")
+    patch_file=$(_fetch_patch_internal "$identifier")
     local fetch_result=$?
     set -e
     
     if [[ $fetch_result -eq 1 ]]; then
-        log_error "无法获取补丁: $commit_id"; return 1
+        log_error "无法获取补丁: $identifier"; return 1
     fi
     
     local output_path="$ORIGINAL_PWD/$OUTPUT_DIR/$PATCH_METADATA_FILE"
     
+    # 如果是本地文件，可能没有元数据，提醒用户
+    if [[ $fetch_result -eq 3 ]]; then
+        log_warning "输入为本地补丁文件，它可能不包含标准的元数据头。"
+    fi
     awk '/^diff --git/ {exit} {print}' "$patch_file" > "$output_path"
 
     log_success "元数据已保存到: $output_path"
@@ -749,10 +811,10 @@ quilt_refresh() {
 
 # 刷新补丁并注入元数据 (带拷贝功能)
 quilt_refresh_with_header() {
-    local commit_id="$1"
-    [[ -z "$commit_id" ]] && { log_error "请提供 commit_id 以注入元数据"; return 1; }
+    local identifier="$1"
+    [[ -z "$identifier" ]] && { log_error "请提供 commit_id 或本地文件路径以注入元数据"; return 1; }
 
-    log_info "🔄 [核心] 刷新补丁并注入来自 commit '$commit_id' 的元数据..."
+    log_info "🔄 [核心] 刷新补丁并尝试从 '$identifier' 注入元数据..."
 
     local kernel_source_dir
     kernel_source_dir=$(find_kernel_source) || { log_error "未找到内核源码目录"; return 1; }
@@ -766,18 +828,19 @@ quilt_refresh_with_header() {
         
         local original_patch_file
         set +e
-        original_patch_file=$(_fetch_patch_internal "$commit_id")
+        original_patch_file=$(_fetch_patch_internal "$identifier")
         local fetch_result=$?
         set -e
         if [[ $fetch_result -eq 1 ]]; then
-             log_error "无法获取原始补丁 $commit_id 以提取元数据"; exit 1
+             log_error "无法获取原始补丁 '$identifier' 以提取元数据"; exit 1
         fi
         
         local header
         header=$(awk '/^diff --git/ {exit} {print}' "$original_patch_file")
         
         if [[ -z "$header" ]]; then
-            log_warning "无法从原始补丁中提取元数据头部，将只执行标准 refresh"
+            log_warning "无法从 '$identifier' 提取元数据头 (可能不是标准的 commit 补丁)。"
+            log_warning "将只执行标准 refresh 操作。"
             quilt refresh
         else
             log_info "元数据头已提取, 正在生成纯代码 diff..."
@@ -804,14 +867,14 @@ quilt_refresh_with_header() {
 
 # 全自动补丁制作流程
 auto_patch() {
-    local commit_id="$1"
+    local identifier="$1"
     local patch_name="$2"
-    [[ -z "$commit_id" || -z "$patch_name" ]] && { print_help; return 1; }
+    [[ -z "$identifier" || -z "$patch_name" ]] && { print_help; return 1; }
     
-    log_info "🚀 开始自动化补丁制作流程 for $commit_id..."
+    log_info "🚀 开始自动化补丁制作流程 for '$identifier'..."
     
     log_info "\n${YELLOW}--- 步骤 1/4: 兼容性测试 ---${NC}"
-    if ! test_patch_compatibility "$commit_id"; then
+    if ! test_patch_compatibility "$identifier"; then
         log_warning "检测到冲突。请在后续步骤手动解决。"
         printf "${CYAN}是否要继续? (y/N): ${NC}"; read -r response
         [[ ! "$response" =~ ^[Yy]$ ]] && { log_info "用户终止流程"; return 0; }
@@ -819,7 +882,7 @@ auto_patch() {
     
     log_info "\n${YELLOW}--- 步骤 2/4: 创建补丁并添加文件 ---${NC}"
     create_patch "$patch_name"
-    extract_files "$commit_id"
+    extract_files "$identifier"
     add_files "$PATCH_LIST_FILE"
 
     log_info "\n${YELLOW}--- 步骤 3/4: 等待手动修改 ---${NC}"
@@ -828,10 +891,220 @@ auto_patch() {
     read -r
 
     log_info "\n${YELLOW}--- 步骤 4/4: 生成带元数据的最终补丁 ---${NC}"
-    quilt_refresh_with_header "$commit_id"
+    quilt_refresh_with_header "$identifier"
     
     log_success "🎉 自动化流程完成!"
 }
+
+    # --- 方案 C: 基于文件哈希的全局差异检测功能 ---
+
+# (内部辅助函数) 绘制进度条
+# 参数1: 当前值, 参数2: 总值
+_draw_progress_bar() {
+    local current=$1
+    local total=$2
+    local width=50
+    local percentage=$(( current * 100 / total ))
+    local completed_width=$(( width * percentage / 100 ))
+    local remaining_width=$(( width - completed_width ))
+
+    # 构建进度条字符串
+    local completed_bar
+    printf -v completed_bar "%*s" "$completed_width" ""
+    local remaining_bar
+    printf -v remaining_bar "%*s" "$remaining_width" ""
+
+    # 使用 ANSI 转义字符 \r 将光标移到行首以实现动态刷新
+    printf "\r[%s%s] %d%% (%d/%d)" "${completed_bar// /#}" "${remaining_bar}" "$percentage" "$current" "$total"
+}
+
+    # (内部辅助函数) 为快照处理单个文件
+_process_file_for_snapshot() {
+    local file="$1"
+    local os_type="$2"
+    local hash_cmd="$3"
+
+    # 获取元数据: path;size;mtime
+    local metadata
+    if [[ "$os_type" == "Darwin" ]]; then
+        # macOS: 手动构建格式字符串
+        metadata="$file;$(stat -f "%z;%m" "$file")"
+    else
+        # Linux: 使用标准格式
+        metadata=$(stat -c "%n;%s;%Y" "$file")
+    fi
+    
+    # 计算哈希
+    local hash
+    hash=$($hash_cmd "$file" | cut -d " " -f 1)
+    # 输出格式: <path>;<size>;<mtime>;<hash>
+    printf "%s;%s\n" "$metadata" "$hash"
+}
+
+# 创建源码树快照
+snapshot_create() {
+    local target_dir="${1:-.}" # 如果未提供参数，则默认为当前目录
+    local manifest_path="$ORIGINAL_PWD/$SNAPSHOT_FILE"
+
+    if [[ ! -d "$target_dir" ]]; then
+        log_error "指定的目录不存在: $target_dir"
+        return 1
+    fi
+    
+    # 检查 hashing 工具
+    local hash_cmd=""
+    if command -v "md5sum" &>/dev/null; then hash_cmd="md5sum"; elif command -v "md5" &>/dev/null; then hash_cmd="md5 -r"; else log_error "无法找到 'md5sum' 或 'md5' 命令。"; return 1; fi
+
+    # 跨平台兼容 (macOS vs Linux)
+    local os_type
+    local nproc_cmd
+    os_type=$(uname)
+    if [[ "$os_type" == "Darwin" ]]; then
+        nproc_cmd='sysctl -n hw.ncpu'
+    else
+        nproc_cmd='nproc --all'
+    fi
+    
+    log_info "📸 正在为目录 '$target_dir' 创建源码树快照..."
+    
+    # 1. 快速预扫描以获取总文件数
+    log_info "正在计算文件总数..."
+    local total_files
+    total_files=$(find "$target_dir" -type f -not -path "./$MAIN_WORK_DIR/*" | wc -l | tr -d ' ')
+    if [[ $total_files -eq 0 ]]; then
+        log_warning "在 '$target_dir' 中没有找到任何文件。"
+        # 仍然创建一个空的快照文件
+        { echo "# META-INFO"; echo "base_dir:$target_dir"; echo "created_at:$(date +%s)"; echo "# END-META"; } > "$manifest_path"
+        log_success "✅ 已创建一个空的快照。"
+        return 0
+    fi
+    log_info "共计 $total_files 个文件需要处理。"
+
+    # 2. 将核心处理逻辑放入后台并行执行
+    mkdir -p "$(dirname "$manifest_path")"
+    { echo "# META-INFO"; echo "base_dir:$target_dir"; echo "created_at:$(date +%s)"; echo "# END-META"; } > "$manifest_path"
+    
+    export -f _process_file_for_snapshot
+    
+    # 使用 & 将命令放入后台执行，并将进程ID存起来
+    find "$target_dir" -type f -not -path "./$MAIN_WORK_DIR/*" -print0 | \
+        xargs -0 -P"$($nproc_cmd)" -I{} bash -c '_process_file_for_snapshot "{}" "$1" "$2"' _ "$os_type" "$hash_cmd" >> "$manifest_path" &
+    local process_pid=$!
+
+    # 3. 启动前台监视器来绘制进度条
+    local current_files=0
+    while kill -0 "$process_pid" 2>/dev/null; do
+        current_files=$(grep -c -v '^#' "$manifest_path")
+        _draw_progress_bar "$current_files" "$total_files"
+        sleep 0.2
+    done
+    
+    # 确保最终进度条为100%
+    _draw_progress_bar "$total_files" "$total_files"
+    printf "\n" # 进度条完成后换行
+
+    export -n _process_file_for_snapshot
+
+    local start_time; start_time=$(date +%s) # 注意: 这里的计时不准了，但为了保持结构完整性暂时保留
+    local end_time; end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+
+    log_success "✅ 快照创建成功！"
+    log_info "已处理 $total_files 个文件。" # , 耗时 ${duration} 秒。"
+    log_info "快照文件保存在: $manifest_path"
+}
+
+# 对比快照并输出差异文件列表
+snapshot_diff() {
+    local user_dir="$1" # 用户可能指定的子目录
+    local manifest_path="$ORIGINAL_PWD/$SNAPSHOT_FILE"
+    
+    if [[ ! -f "$manifest_path" ]]; then
+        log_error "快照文件不存在: $manifest_path"; log_info "请先运行 'snapshot-create' 命令。"; return 1
+    fi
+
+    local base_dir
+    base_dir=$(grep '^base_dir:' "$manifest_path" | cut -d: -f2-)
+    if [[ -z "$base_dir" ]]; then
+        log_error "快照文件格式错误, 未找到 'base_dir' 元数据。"; return 1
+    fi
+
+    local final_target_dir="$base_dir"
+    if [[ -n "$user_dir" ]]; then
+        local real_user_dir; real_user_dir=$(realpath "$user_dir" 2>/dev/null || echo "$user_dir")
+        local real_base_dir; real_base_dir=$(realpath "$base_dir" 2>/dev/null || echo "$base_dir")
+        if [[ "$real_user_dir" != "$real_base_dir" && "$real_user_dir" != "$real_base_dir"/* ]]; then
+            log_error "指定的目录 '$user_dir' 不在快照的基础目录 '$base_dir' 之下。"; return 1
+        fi
+        final_target_dir="$user_dir"
+    fi
+    log_info "🔎 正在为目录 '$final_target_dir' 对比快照..."
+    
+    local start_time; start_time=$(date +%s)
+
+    # 1. 生成当前状态清单
+    local hash_cmd; if command -v "md5sum" &>/dev/null; then hash_cmd="md5sum"; elif command -v "md5" &>/dev/null; then hash_cmd="md5 -r"; else log_error "需要 md5/md5sum"; return 1; fi
+    
+    local current_manifest
+    current_manifest=$(mktemp)
+    
+    find "$final_target_dir" -type f -not -path "./$MAIN_WORK_DIR/*" -exec bash -c '
+        file="$1"
+        os_type="$2"
+        hash_cmd="$3"
+        if [[ "$os_type" == "Darwin" ]]; then
+            metadata="$file;$(stat -f "%z;%m" "$file")"
+        else
+            metadata=$(stat -c "%n;%s;%Y" "$file")
+        fi
+        hash=$($hash_cmd "$file" | cut -d " " -f 1)
+        printf "%s;%s\n" "$metadata" "$hash"
+    ' _ {} "$(uname)" "$hash_cmd" \; | sed 's|^\./||' > "$current_manifest"
+
+    # 2. 调用 C 语言编写的高性能辅助工具
+    local helper_path="$SCRIPT_DIR/snapshot_tool/snapshot_helper"
+    if [[ ! -f "$helper_path" ]]; then
+        log_warning "快照辅助工具 '$helper_path' 未找到, 尝试在 '$SCRIPT_DIR/snapshot_tool' 编译..."
+        if ! (cd "$SCRIPT_DIR/snapshot_tool" && make); then
+            log_error "编译失败, 请检查 'snapshot_tool' 目录下的源码和 Makefile。"; return 1
+        fi
+        log_success "辅助工具编译成功。"
+    fi
+    
+    local old_manifest_no_meta
+    old_manifest_no_meta=$(mktemp)
+    grep -v '^#' "$manifest_path" | sed 's|^\./||' > "$old_manifest_no_meta"
+
+    local diff_output
+    diff_output=$("$helper_path" "$old_manifest_no_meta" "$current_manifest" "$final_target_dir")
+    
+    rm "$current_manifest"
+    rm "$old_manifest_no_meta"
+
+    # 3. 报告结果
+    local end_time; end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+
+    log_info "对比完成, 耗时 ${duration} 秒。"
+    
+    local report_part; report_part=$(echo "$diff_output" | sed '/^---$/,$d')
+    local file_list_part; file_list_part=$(echo "$diff_output" | sed '1,/^---$/d')
+
+    if [[ -z "$report_part" ]]; then
+        log_info "✅ 未发现任何文件变更。"
+    else
+        echo "$report_part" | sed \
+            -e 's/^\[+\] /\'$'\033[0;32m''[SUCCESS]\'$'\033[0m'' Found new file: /' \
+            -e 's/^\[M\] /\'$'\033[0;32m''[SUCCESS]\'$'\033[0m'' Found modified file: /' \
+            -e 's/^\[-\] /\'$'\033[1;33m''[WARNING]\'$'\033[0m'' Found deleted file: /'
+    fi
+
+    if [[ -n "$file_list_part" ]]; then
+        echo "$file_list_part"
+    fi
+}
+
+
 
 # 清理工作目录
 clean_work_dir() {
@@ -908,6 +1181,8 @@ main() {
         "refresh") check_dependencies "need_quilt"; quilt_refresh "$@";;
         "refresh-with-header") check_dependencies "need_quilt"; quilt_refresh_with_header "$@";;
         "auto-patch") check_dependencies "need_quilt"; auto_patch "$@";;
+        "snapshot-create") snapshot_create "$@";;
+        "snapshot-diff") snapshot_diff "$@";;
         "clean") clean_work_dir "$@";;
         "reset-env") check_dependencies "need_quilt"; reset_env "$@";;
         "status"|"series"|"applied"|"unapplied"|"top"|"files"|"push"|"pop"|"diff")

@@ -1,54 +1,80 @@
-# OpenWrt Quilt 补丁管理工具使用指南 v7.0
+# OpenWrt Quilt 补丁管理工具使用指南 v8.0
 
-## 📋 概述 (v7.0 最终重构稳定版)
+## 📋 概述 (v8.0 Git风格快照系统重大版本)
 
-本工具是专为 OpenWrt 内核补丁制作设计的自动化 bash 脚本。**v7.0 版本是最终重构稳定版**，在 v6.0 自动化基础上，新增了**终极重构版智能冲突分析器 (Smart Conflict Analysis v7.0)** 和**完整的 Quilt 状态管理系统**。
+本工具是专为 OpenWrt 内核补丁制作设计的自动化 bash 脚本。**v8.0 版本是Git风格快照系统重大版本**，在 v7.0 智能冲突分析基础上，新增了**全局差异快照系统 (类Git功能)** 和**混合输入架构支持**。
 
-v7.0 版本不仅保持了以 Commit ID 为驱动的全自动化补丁制作工作流，还提供了专业级的冲突分析、完整的补丁状态管理和队列操作功能，是企业级补丁管理的终极解决方案。
+v8.0 版本不仅保持了智能冲突分析和完整 Quilt 管理功能，还新增了Git风格的文件变更跟踪、混合输入支持(commit ID + 本地文件)、高性能C助手工具等企业级特性，实现了**混合架构与高性能**的完美结合。
 
-## 🚀 v7.0 核心特性：智能化与专业化
+## 🚀 v8.0 核心特性：Git风格快照与混合架构
 
-### 🧠 智能冲突分析器 v7.0（核心突破）
+### 🧠 智能冲突分析器 v7.3（继承核心突破）
 
-v7.0 引入了**终极重构版智能冲突分析器**，彻底改变补丁兼容性测试的体验：
+继承 v7.0 的**终极重构版智能冲突分析器**，彻底改变补丁兼容性测试的体验：
 
 - 🎯 **精确定位**：使用 AWK 脚本精确分析每个失败的 hunk
 - 🔍 **上下文分析**：显示冲突周围的完整代码上下文
-- 📊 **专业报告**：生成格式化的智能冲突分析报告
+- 📊 **专业报告**：生成格式化的智能冲突分析报告 (v7.3)
 - 🛠️ **解决建议**：提供具体的修复指导
 
-### 📋 完整的 Quilt 生态系统
+### 🔄 Git风格全局快照系统（v8.0 核心突破）
 
-v7.0 不再只是自动化工具，而是完整的 Quilt 管理平台：
+v8.0 引入了**类Git的全局差异快照系统**，实现高性能文件变更跟踪：
+
+- 📸 **快照创建**：`snapshot-create` - 为整个目录树创建基准快照
+- 🔍 **智能对比**：`snapshot-diff` - 高性能差异检测，找出所有变更
+- ⚡ **高性能**：集成C语言助手工具，支持大型代码库
+- 🎯 **精确跟踪**：基于文件哈希和元数据的精确变更检测
+- 📊 **进度显示**：实时进度条，支持并行处理
+
+### 🔀 混合输入架构支持（v8.0 重大特性）
+
+v8.0 支持**双重输入模式**，大幅提升工具灵活性：
+
+- 🌐 **Commit ID 模式**：传统的 Linux 内核官方仓库补丁下载
+- 📁 **本地文件模式**：直接使用本地补丁文件作为输入
+- 🔄 **统一接口**：所有命令自动识别输入类型，透明处理
+- 📋 **智能适配**：根据输入类型调整元数据处理策略
+
+### 📋 完整的 Quilt 生态系统（继承 v7.0）
+
+保持完整的 Quilt 管理平台：
 
 - **状态查询**：`status`, `series`, `top`, `applied`, `unapplied`, `files`, `diff`
 - **队列操作**：`push`, `pop` 
 - **环境管理**：`reset-env`, `clean`
-- **自动化流程**：保持 `auto-patch` 的一键式体验
+- **自动化流程**：增强的 `auto-patch` 一键式体验
 
 ## 📝 使用方法
 
 ### 🥇 首选命令：一键式自动化补丁制作 (`auto-patch`)
 
-这是 **v7.0 最推荐**的使用方式。它整合了智能冲突分析和完整补丁制作流程，是最快、最安全、最智能的方式。
+这是 **v8.0 最推荐**的使用方式。它整合了智能冲突分析、混合输入支持和完整补丁制作流程，是最快、最安全、最智能的方式。
 
 ```bash
-# 在 OpenWrt 根目录直接运行
+# 在 OpenWrt 根目录直接运行 - 支持混合输入
+
+# 方式1: 使用 Commit ID（传统方式）
 ./tools/quilt_patch_manager_final.sh auto-patch <commit_id> <patch_name>
+
+# 方式2: 使用本地补丁文件（v8.0 新特性）
+./tools/quilt_patch_manager_final.sh auto-patch /path/to/local.patch <patch_name>
 ```
 
 **工作流程详解:**
 
 #### 🔄 四步自动化流程
 
-**步骤 1/4: 智能兼容性测试** (`test_patch_compatibility` + **Smart Conflict Analysis v7.0**)
-- 📥 从 Linux 内核官方仓库 (`git.kernel.org`) 自动下载原始补丁
+**步骤 1/4: 智能兼容性测试** (`test_patch_compatibility` + **Smart Conflict Analysis v7.3**)
+- 📥 **混合输入支持 (v8.0)**：
+  - 🌐 Commit ID 模式：从 Linux 内核官方仓库 (`git.kernel.org`) 自动下载原始补丁
+  - 📁 本地文件模式：直接使用本地补丁文件，自动识别文件路径
 - 🔍 智能查找 OpenWrt 内核源码目录 (支持 `build_dir/target-*/linux-*/linux-*` 路径)
 - 🧪 执行 `patch --dry-run -p1 --verbose` 进行干运行测试
-- 🧠 **智能冲突分析器 v7.0**：
+- 🧠 **智能冲突分析器 v7.3**：
   - 使用 AWK 脚本精确解析每个失败的 hunk
   - 提取冲突周围的完整代码上下文
-  - 生成专业级的冲突分析报告
+  - 生成专业级的冲突分析报告 (v7.3)
   - 显示具体的文件位置和行号信息
 - ⚠️ 如果发现冲突，显示详细的智能分析报告并询问用户是否继续
 - 📋 生成完整的兼容性分析结果到临时目录
@@ -85,10 +111,14 @@ v7.0 不再只是自动化工具，而是完整的 Quilt 管理平台：
 
 #### 步骤 1: 补丁兼容性测试 (`test-patch`)
 
-在正式操作前，务必使用此命令检查补丁与当前内核的兼容性。
+在正式操作前，务必使用此命令检查补丁与当前内核的兼容性。**v8.0 支持混合输入**：
 
 ```bash
+# 使用 Commit ID 测试
 ./tools/quilt_patch_manager_final.sh test-patch <commit_id>
+
+# 使用本地补丁文件测试 (v8.0 新特性)
+./tools/quilt_patch_manager_final.sh test-patch /path/to/local.patch
 ```
 
 #### 步骤 2: 创建空补丁 (`create-patch`)
@@ -128,15 +158,32 @@ v7.0 不再只是自动化工具，而是完整的 Quilt 管理平台：
 
 ### 🧰 辅助与工具命令
 
-#### 📥 补丁获取 (`fetch` & `save`)
+#### 📥 补丁获取 (`fetch` & `save`) - 支持混合输入
 
-- `fetch <commit_id>`: 下载补丁到临时目录，供脚本内部使用，会自动清理。
-- `save <commit_id> [filename]`: 下载补丁并**永久保存**到当前目录，方便离线查看。
+- `fetch <commit_id|file_path>`: 下载或复制补丁到临时目录，供脚本内部使用，会自动清理。
+- `save <commit_id|file_path> [filename]`: 下载或复制补丁并**永久保存**到当前目录，方便离线查看。
 
-#### 📄 信息提取 (`extract-files` & `extract-metadata`)
+#### 📄 信息提取 (`extract-files` & `extract-metadata`) - 支持混合输入
 
-- `extract-files <commit_id>`: 提取补丁涉及的文件列表，保存到 `output/patch_files.txt`。
-- `extract-metadata <commit_id>`: 提取补丁的元数据（头部信息），保存到 `output/patch_metadata.txt`。
+- `extract-files <commit_id|file_path>`: 提取补丁涉及的文件列表，保存到 `output/patch_files.txt`。
+- `extract-metadata <commit_id|file_path>`: 提取补丁的元数据（头部信息），保存到 `output/patch_metadata.txt`。
+
+#### 📸 Git风格快照系统 (`snapshot-create` & `snapshot-diff`) - v8.0 新特性
+
+- `snapshot-create [dir]`: 为指定目录(默认当前)创建快照，作为后续对比的基准。
+- `snapshot-diff [dir]`: 与快照对比，找出指定目录(默认当前)下所有变更。
+- **推荐用法**: `snapshot-diff > files.txt` - 将所有新增和修改的文件列表输出到文件。
+
+```bash
+# 创建快照 (在 OpenWrt 根目录)
+./tools/quilt_patch_manager_final.sh snapshot-create
+
+# 进行一些修改后，检查变更
+./tools/quilt_patch_manager_final.sh snapshot-diff
+
+# 将变更的文件列表保存到文件
+./tools/quilt_patch_manager_final.sh snapshot-diff > changed_files.txt
+```
 
 #### 🧹 环境管理 (`clean` & `reset-env`)
 
@@ -249,9 +296,13 @@ v7.0 提供了企业级的补丁状态管理功能：
 ./tools/quilt_patch_manager_final.sh pop
 ```
 
-## 🚀 完整工作流程示例 (v7.0)
+## 🚀 完整工作流程示例 (v8.0)
 
-**场景**: 为 OpenWrt 内核合入一个来自上游的修复 `commit: 654b33ada4ab`，展示 v7.0 的智能化特性。
+**场景**: 为 OpenWrt 内核合入补丁，展示 v8.0 的混合输入和快照系统特性。
+
+### 示例 1: 使用 Commit ID (传统模式)
+
+**场景**: 使用来自上游的修复 `commit: 654b33ada4ab`：
 
 #### 步骤 1: （可选）兼容性测试
 
@@ -286,15 +337,59 @@ cd /path/to/openwrt
 ✅ 补丁已成功生成: patches/952-kernel-proc-fix-uaf.patch
 📄 最终补丁已拷贝到: /path/to/openwrt/output/952-kernel-proc-fix-uaf.patch
 ```
-现在，`output` 目录下的补丁文件就是包含完整元数据的、可以直接使用的最终产物。
+
+### 示例 2: 使用本地补丁文件 (v8.0 新模式)
+
+**场景**: 使用本地下载的补丁文件 `/tmp/cve-2024-1234.patch`：
+
+#### 步骤 1: 一键执行自动化流程
+
+```bash
+cd /path/to/openwrt
+./tools/quilt_patch_manager_final.sh auto-patch /tmp/cve-2024-1234.patch 953-cve-2024-1234-fix.patch
+```
+
+**注意**: 本地文件模式可能不包含标准的元数据头，工具会自动适配并提醒用户。
+
+### 示例 3: 使用快照系统跟踪变更 (v8.0 新特性)
+
+**场景**: 在大型项目中跟踪所有修改：
+
+```bash
+cd /path/to/openwrt
+
+# 1. 创建基准快照
+./tools/quilt_patch_manager_final.sh snapshot-create
+
+# 2. 进行各种修改 (手动编辑、打补丁等)
+# ... 进行修改 ...
+
+# 3. 检查所有变更
+./tools/quilt_patch_manager_final.sh snapshot-diff
+
+# 4. 将变更列表保存到文件
+./tools/quilt_patch_manager_final.sh snapshot-diff > all_changes.txt
+```
+
+现在，所有修改过的文件都记录在 `all_changes.txt` 中，方便进一步处理。
 
 ---
-**版本**: 6.0  
-**更新时间**: 2024-08-05
+**版本**: 8.0.0  
+**更新时间**: 2025-01-12
 
 ---
 
 ## 📜 历史版本更新日志
+
+### v8.0.0 (2025-01-12) 🚀 Git风格快照系统重大版本 - 混合架构与高性能
+- 🔄 **全局差异快照系统**: 类Git的文件变更跟踪功能，支持 `snapshot-create` 和 `snapshot-diff`
+- ⚡ **高性能C助手工具**: 集成C语言编写的 `snapshot_helper`，支持大型代码库的快速差异检测
+- 🔀 **混合输入架构支持**: 所有命令统一支持 commit ID 和本地补丁文件两种输入模式
+- 📊 **实时进度显示**: 快照创建过程中显示动态进度条，支持并行处理
+- 🛠️ **增强的路径处理**: 改进脚本目录检测和跨平台兼容性 (macOS + Linux)
+- 🎯 **智能输入识别**: 自动区分 commit ID 和文件路径，透明处理不同输入类型
+- 📈 **性能优化**: 使用哈希表和并行算法，大幅提升大型项目的处理速度
+- 🔧 **架构健壮性**: 从 v7.0 的 927 行增长到 1202 行，达到混合架构的高性能稳定版
 
 ### v5.7 (2025-01-12) 🚀 重大功能更新
 - 🆕 **智能元数据集成**: 新增 `auto-refresh` 命令，生成补丁并自动集成CVE元数据
