@@ -61,7 +61,7 @@ int git_snapshot_status(const char *snapshot_path, const char *dir_path,
     
     // 使用简化的工作线程池进行实时扫描（不写文件）
     int thread_count = config->thread_count > 0 ? config->thread_count : sysconf(_SC_NPROCESSORS_ONLN);
-    worker_pool_t *pool = worker_pool_create(thread_count, collector, config, NULL);  // 不创建快照文件
+    worker_pool_t *pool = worker_pool_create(thread_count, collector, config, NULL, NULL);  // 不创建快照文件
     if (!pool) {
         result_collector_destroy(collector);
         strcpy(result->error_message, "无法创建工作线程池");

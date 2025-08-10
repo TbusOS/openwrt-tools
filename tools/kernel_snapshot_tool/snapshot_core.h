@@ -209,7 +209,7 @@ void bounded_result_queue_destroy(bounded_result_queue_t *queue);
 int bounded_result_queue_push(bounded_result_queue_t *queue, result_entry_t *item);
 result_entry_t* bounded_result_queue_pop(bounded_result_queue_t *queue);
 
-worker_pool_t* worker_pool_create(int thread_count, result_collector_t *collector, const snapshot_config_t *config, const char *snapshot_path);
+worker_pool_t* worker_pool_create(int thread_count, result_collector_t *collector, const snapshot_config_t *config, const char *snapshot_path, const char *base_dir);
 void worker_pool_destroy(worker_pool_t *pool);
 int worker_pool_add_work(worker_pool_t *pool, const char *file_path);
 void worker_pool_wait_completion(worker_pool_t *pool);

@@ -440,6 +440,14 @@ static int cmd_status(int argc, char *argv[], const snapshot_config_t *config) {
             fprintf(stderr, "❌ 基线快照不存在，请重新运行 'create' 命令\n");
             return 1;
         }
+        
+        // 构建包含忽略模式的配置
+        static snapshot_config_t local_config;
+        local_config = *config;
+        if (has_global_config && strlen(global_config.ignore_patterns) > 0) {
+            local_config.exclude_patterns = strdup(global_config.ignore_patterns);
+        }
+        config = &local_config;
     } else if (argc == 2) {
         // 兼容旧格式: ./kernel_snapshot status <snapshot_file> <dir>
         snapshot_path = argv[0];

@@ -26,10 +26,22 @@ typedef struct simple_index_entry {
     struct simple_index_entry *next;
 } simple_index_entry_t;
 
-// 简化的索引结构
+// 哈希表桶大小（选择质数以减少冲突）
+#define HASH_TABLE_SIZE 65537
+
+// 哈希表条目
+typedef struct hash_entry {
+    const char *key;  // 相对路径
+    simple_index_entry_t *value;  // 指向索引条目
+    struct hash_entry *next;
+} hash_entry_t;
+
+// 简化的索引结构（增加哈希表加速查找）
 typedef struct {
     uint64_t file_count;
     simple_index_entry_t *entries;
+    hash_entry_t *hash_table[HASH_TABLE_SIZE];  // 哈希表加速查找
+    char base_dir[MAX_PATH_LEN];  // 存储base_dir用于路径计算
     int dirty;
 } simple_index_t;
 
@@ -49,14 +61,146 @@ typedef struct change_list {
     uint64_t deleted_count;
 } change_list_t;
 
+// ========== 哈希表辅助函数 ==========
+
+// 简单的字符串哈希函数（djb2算法）
+static uint32_t hash_string(const char *str) {
+    uint32_t hash = 5381;
+    int c;
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c; // hash * 33 + c
+    }
+    return hash % HASH_TABLE_SIZE;
+}
+
+// 向哈希表中插入条目
+static void hash_table_insert(simple_index_t *index, const char *rel_path, simple_index_entry_t *entry) {
+    uint32_t hash = hash_string(rel_path);
+    
+    hash_entry_t *hash_entry = malloc(sizeof(hash_entry_t));
+    if (!hash_entry) return;
+    
+    // 为键分配独立内存
+    char *key_copy = malloc(strlen(rel_path) + 1);
+    if (!key_copy) {
+        free(hash_entry);
+        return;
+    }
+    strcpy(key_copy, rel_path);
+    
+    hash_entry->key = key_copy;
+    hash_entry->value = entry;
+    hash_entry->next = index->hash_table[hash];
+    index->hash_table[hash] = hash_entry;
+}
+
+// 从哈希表中查找条目
+static simple_index_entry_t* hash_table_lookup(simple_index_t *index, const char *rel_path) {
+    uint32_t hash = hash_string(rel_path);
+    
+    hash_entry_t *hash_entry = index->hash_table[hash];
+    while (hash_entry) {
+        if (strcmp(hash_entry->key, rel_path) == 0) {
+            return hash_entry->value;
+        }
+        hash_entry = hash_entry->next;
+    }
+    return NULL;
+}
+
+// 清理哈希表
+static void hash_table_clear(simple_index_t *index) {
+    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
+        hash_entry_t *hash_entry = index->hash_table[i];
+        while (hash_entry) {
+            hash_entry_t *next = hash_entry->next;
+            free((void*)hash_entry->key);  // 释放键内存
+            free(hash_entry);
+            hash_entry = next;
+        }
+        index->hash_table[i] = NULL;
+    }
+}
+
+// 提取相对路径的辅助函数
+static const char* extract_relative_path(const char *full_path, const char *base_path) {
+    if (!base_path || strlen(base_path) == 0) {
+        return full_path;
+    }
+    
+    size_t base_len = strlen(base_path);
+    if (strncmp(full_path, base_path, base_len) == 0) {
+        const char *rel_path = full_path + base_len;
+        // 跳过前导斜杠
+        while (*rel_path == '/') {
+            rel_path++;
+        }
+        return rel_path;
+    }
+    
+    // 如果不匹配，返回文件名部分
+    const char *last_slash = strrchr(full_path, '/');
+    return last_slash ? last_slash + 1 : full_path;
+}
+
+
+
+// 构建哈希表（在索引加载后调用）
+static void build_hash_table_with_base_dir(simple_index_t *index, const char *base_dir) {
+    // 首先清理现有哈希表
+    hash_table_clear(index);
+    
+    if (!base_dir) {
+        printf("⚠️  警告: 无法获取base_dir，使用文件名模式\n");
+        return;
+    }
+    
+    size_t base_len = strlen(base_dir);
+    
+    simple_index_entry_t *entry = index->entries;
+    while (entry) {
+        const char *rel_path = entry->path;
+        
+        // 如果路径以base_dir开头，提取相对路径部分
+        if (strncmp(entry->path, base_dir, base_len) == 0) {
+            rel_path = entry->path + base_len;
+            // 跳过前导斜杠
+            while (*rel_path == '/') {
+                rel_path++;
+            }
+        } else {
+            // 如果不匹配，使用文件名
+            const char *last_slash = strrchr(entry->path, '/');
+            rel_path = last_slash ? last_slash + 1 : entry->path;
+        }
+        
+        if (rel_path && strlen(rel_path) > 0) {
+            hash_table_insert(index, rel_path, entry);
+        }
+        entry = entry->next;
+    }
+}
+
+// 构建哈希表（在索引加载后调用）
+static void build_hash_table(simple_index_t *index) {
+    // 使用索引中存储的base_dir
+    if (strlen(index->base_dir) > 0) {
+        build_hash_table_with_base_dir(index, index->base_dir);
+    } else {
+        printf("⚠️  警告: 索引中没有base_dir信息\n");
+        // 降级处理：使用文件名模式
+        build_hash_table_with_base_dir(index, NULL);
+    }
+}
+
 // 函数声明
 simple_index_t* create_simple_index_from_snapshot(const char *snapshot_path);
 simple_index_t* load_simple_index(const char *index_path);
 int save_simple_index(simple_index_t *index, const char *index_path);
 void simple_check_status_with_list(const char *workspace_root, simple_index_t *index,
-                                  change_list_t *changes, uint64_t *unchanged, uint64_t *hash_calculations);
+                                  change_list_t *changes, uint64_t *unchanged, uint64_t *hash_calculations, const char *ignore_patterns);
 void simple_scan_directory_with_list(const char *base_path, const char *current_path, simple_index_t *index,
-                                    change_list_t *changes, uint64_t *unchanged, uint64_t *hash_calculations);
+                                    change_list_t *changes, uint64_t *unchanged, uint64_t *hash_calculations, const char *ignore_patterns);
 void simple_check_file_with_list(const char *base_path, const char *file_path, struct stat *st, simple_index_t *index,
                                 change_list_t *changes, uint64_t *unchanged, uint64_t *hash_calculations);
 void add_file_change(change_list_t *changes, const char *path, char status);
@@ -81,13 +225,22 @@ int git_status_with_index(const char *workspace_root, const snapshot_config_t *c
     
     printf("✅ 索引载入完成，包含 %llu 个文件\n", index->file_count);
     
+    // 构建完整的忽略模式（与create命令保持一致）
+    char combined_patterns[MAX_PATH_LEN * 2];
+    if (config && config->exclude_patterns && strlen(config->exclude_patterns) > 0) {
+        snprintf(combined_patterns, sizeof(combined_patterns), ".snapshot,%s", config->exclude_patterns);
+    } else {
+        strncpy(combined_patterns, ".snapshot", sizeof(combined_patterns) - 1);
+        combined_patterns[sizeof(combined_patterns) - 1] = '\0';
+    }
+    
     // 创建变更列表
     change_list_t changes = {0};
     uint64_t unchanged = 0;
     uint64_t hash_calculations = 0;
     
     printf("🔍 开始快速扫描...\n");
-    simple_check_status_with_list(workspace_root, index, &changes, &unchanged, &hash_calculations);
+    simple_check_status_with_list(workspace_root, index, &changes, &unchanged, &hash_calculations, combined_patterns);
     
     // 显示文件变更列表（像git status那样）
     print_change_list(&changes);
@@ -161,20 +314,35 @@ simple_index_t* create_simple_index_from_snapshot(const char *snapshot_path) {
     
     char line[MAX_PATH_LEN * 2];
     
-    // 读取快照文件，跳过注释行
+    // 读取快照文件头部和数据
     while (fgets(line, sizeof(line), fp)) {
-        // 跳过注释行
-        if (line[0] == '#' || line[0] == '\n') {
+        // 处理注释行，寻找Base Dir
+        if (line[0] == '#') {
+            if (strncmp(line, "# Base Dir: ", 12) == 0) {
+                char *dir_start = line + 12;
+                char *dir_end = strchr(dir_start, '\n');
+                if (dir_end) {
+                    *dir_end = '\0';
+                    strncpy(index->base_dir, dir_start, MAX_PATH_LEN - 1);
+                    index->base_dir[MAX_PATH_LEN - 1] = '\0';
+                }
+            }
             continue;
         }
         
-        // 解析文件条目：path;size;mtime;hash
+        // 跳过空行
+        if (line[0] == '\n') {
+            continue;
+        }
+        
+        // 解析文件条目：path;size;mtime;mode;hash (5字段格式)
         char *path = strtok(line, ";");
         char *size_str = strtok(NULL, ";");
         char *mtime_str = strtok(NULL, ";");
+        char *mode_str = strtok(NULL, ";");  // 添加mode字段
         char *hash_hex = strtok(NULL, ";\n");
         
-        if (!path || !size_str || !mtime_str || !hash_hex) {
+        if (!path || !size_str || !mtime_str || !mode_str || !hash_hex) {
             continue;
         }
         
@@ -191,6 +359,14 @@ simple_index_t* create_simple_index_from_snapshot(const char *snapshot_path) {
         strncpy(entry->hash_hex, hash_hex, HASH_HEX_SIZE - 1);
         entry->hash_hex[HASH_HEX_SIZE - 1] = '\0';
         
+        // 调试：显示前几个解析的条目
+        static int debug_parse = 0;
+        if (debug_parse < 3) {
+            printf("🔧 解析条目[%d]: path='%s', size_str='%s' -> size=%llu\n", 
+                   debug_parse, path, size_str, entry->size);
+            debug_parse++;
+        }
+        
         // 添加到索引
         entry->next = index->entries;
         index->entries = entry;
@@ -199,6 +375,9 @@ simple_index_t* create_simple_index_from_snapshot(const char *snapshot_path) {
     
     fclose(fp);
     index->dirty = 1;
+    
+    // 构建哈希表加速查找
+    build_hash_table(index);
     
     return index;
 }
@@ -223,6 +402,23 @@ simple_index_t* load_simple_index(const char *index_path) {
         return NULL;
     }
     
+    // 读取版本号
+    uint32_t version = 0;
+    if (fread(&version, sizeof(uint32_t), 1, fp) != 1) {
+        // 兼容旧版本：回退到文件开始，按旧格式读取
+        fseek(fp, 4, SEEK_SET);  // 跳过魔数
+        version = 1;
+    }
+    
+    if (version >= 2) {
+        // 版本2：读取base_dir
+        if (fread(index->base_dir, MAX_PATH_LEN, 1, fp) != 1) {
+            fclose(fp);
+            free(index);
+            return NULL;
+        }
+    }
+    
     // 读取文件数量
     if (fread(&index->file_count, sizeof(uint64_t), 1, fp) != 1) {
         fclose(fp);
@@ -245,11 +441,20 @@ simple_index_t* load_simple_index(const char *index_path) {
             break;
         }
         
+        if (i < 3) {
+            printf("🔧 加载条目[%llu]: path='%s', size=%llu\n", 
+                   i, entry->path, entry->size);
+        }
+        
         entry->next = index->entries;
         index->entries = entry;
     }
     
     fclose(fp);
+    
+    // 构建哈希表加速查找
+    build_hash_table(index);
+    
     return index;
 }
 
@@ -263,12 +468,26 @@ int save_simple_index(simple_index_t *index, const char *index_path) {
     // 写入魔数
     fwrite(INDEX_MAGIC, 1, 4, fp);
     
+    // 写入版本号（用于兼容性）
+    uint32_t version = 2;  // 版本2支持base_dir
+    fwrite(&version, sizeof(uint32_t), 1, fp);
+    
+    // 写入base_dir
+    fwrite(index->base_dir, MAX_PATH_LEN, 1, fp);
+    
     // 写入文件数量
     fwrite(&index->file_count, sizeof(uint64_t), 1, fp);
     
     // 写入条目
     simple_index_entry_t *entry = index->entries;
+    int debug_save = 0;
     while (entry) {
+        if (debug_save < 3) {
+            printf("🔧 保存条目[%d]: path='%s', size=%llu\n", 
+                   debug_save, entry->path, entry->size);
+            debug_save++;
+        }
+        
         fwrite(entry->path, MAX_PATH_LEN, 1, fp);
         fwrite(&entry->mtime, sizeof(uint64_t), 1, fp);
         fwrite(&entry->size, sizeof(uint64_t), 1, fp);
@@ -372,23 +591,19 @@ void destroy_change_list(change_list_t *changes) {
 
 // 修改版的状态检查
 void simple_check_status_with_list(const char *workspace_root, simple_index_t *index,
-                                  change_list_t *changes, uint64_t *unchanged, uint64_t *hash_calculations) {
+                                  change_list_t *changes, uint64_t *unchanged, uint64_t *hash_calculations, const char *ignore_patterns) {
     *unchanged = *hash_calculations = 0;
     
-    // 标记索引中的文件
-    simple_index_entry_t *entry = index->entries;
-    while (entry) {
-        entry->size = 0; // 使用size字段作为临时标记
-        entry = entry->next;
-    }
+    // 标记索引中的文件 - 不要破坏原始size字段
+    // 我们将在simple_check_file_with_list中处理标记
     
     // 扫描当前目录
-    simple_scan_directory_with_list(workspace_root, workspace_root, index, changes, unchanged, hash_calculations);
+    simple_scan_directory_with_list(workspace_root, workspace_root, index, changes, unchanged, hash_calculations, ignore_patterns);
     
     // 检查删除的文件
-    entry = index->entries;
+    simple_index_entry_t *entry = index->entries;
     while (entry) {
-        if (entry->size != UINT64_MAX) { // 未被标记，说明已删除
+        if (!(entry->mtime & (1ULL << 63))) { // 未被标记，说明已删除
             // 从绝对路径中提取相对路径
             const char *rel_path = entry->path;
             
@@ -409,13 +624,17 @@ void simple_check_status_with_list(const char *workspace_root, simple_index_t *i
             
             add_file_change(changes, rel_path, 'D');
         }
+        
+        // 恢复原始mtime值（清除访问标记）
+        entry->mtime &= ~(1ULL << 63);
+        
         entry = entry->next;
     }
 }
 
 // 修改版的目录扫描
 void simple_scan_directory_with_list(const char *base_path, const char *current_path, simple_index_t *index,
-                                    change_list_t *changes, uint64_t *unchanged, uint64_t *hash_calculations) {
+                                    change_list_t *changes, uint64_t *unchanged, uint64_t *hash_calculations, const char *ignore_patterns) {
     DIR *dir = opendir(current_path);
     if (!dir) {
         return;
@@ -444,8 +663,8 @@ void simple_scan_directory_with_list(const char *base_path, const char *current_
             rel_entry_path[MAX_PATH_LEN - 1] = '\0';
         }
         
-        // 使用默认忽略模式检查
-        if (is_file_ignored(rel_entry_path, ".snapshot")) {
+        // 使用完整的忽略模式检查
+        if (is_file_ignored(rel_entry_path, ignore_patterns)) {
             continue;
         }
         
@@ -458,7 +677,7 @@ void simple_scan_directory_with_list(const char *base_path, const char *current_
         }
         
         if (S_ISDIR(st.st_mode)) {
-            simple_scan_directory_with_list(base_path, full_path, index, changes, unchanged, hash_calculations);
+            simple_scan_directory_with_list(base_path, full_path, index, changes, unchanged, hash_calculations, ignore_patterns);
         } else if (S_ISREG(st.st_mode)) {
             simple_check_file_with_list(base_path, full_path, &st, index, changes, unchanged, hash_calculations);
         }
@@ -474,32 +693,8 @@ void simple_check_file_with_list(const char *base_path, const char *file_path, s
     const char *rel_path = file_path + strlen(base_path);
     if (rel_path[0] == '/') rel_path++; // 跳过开头的'/'
     
-    // 查找索引条目，需要处理路径格式差异
-    simple_index_entry_t *entry = index->entries;
-    while (entry) {
-        // 从索引路径中提取相对路径
-        const char *entry_rel_path = entry->path;
-        
-        // 如果索引路径包含工作区根目录，提取相对部分
-        size_t base_len = strlen(base_path);
-        if (strncmp(entry->path, base_path, base_len) == 0) {
-            entry_rel_path = entry->path + base_len;
-            // 跳过前导斜杠
-            while (*entry_rel_path == '/') {
-                entry_rel_path++;
-            }
-        }
-        // 如果还是空的，使用原路径的最后部分
-        if (*entry_rel_path == '\0') {
-            const char *last_slash = strrchr(entry->path, '/');
-            entry_rel_path = last_slash ? last_slash + 1 : entry->path;
-        }
-        
-        if (strcmp(entry_rel_path, rel_path) == 0) {
-            break;
-        }
-        entry = entry->next;
-    }
+    // 使用哈希表快速查找索引条目（O(1)复杂度）
+    simple_index_entry_t *entry = hash_table_lookup(index, rel_path);
     
     if (!entry) {
         // 新文件
@@ -507,16 +702,24 @@ void simple_check_file_with_list(const char *base_path, const char *file_path, s
         return;
     }
     
-    // 保存原始大小，用于比较
-    uint64_t original_size = entry->size;
+    // 标记为已找到（使用mtime字段的最高位作为标记）
+    uint64_t original_mtime = entry->mtime;
+    entry->mtime |= (1ULL << 63);  // 设置最高位作为访问标记
     
-    // 标记为已找到（使用特殊值）
-    entry->size = UINT64_MAX;
-    
-    // 快速检查：比较mtime和size
-    if (entry->mtime == (uint64_t)st->st_mtime && original_size == (uint64_t)st->st_size) {
+    // 快速检查：比较mtime和size（去掉标记位）
+    uint64_t clean_mtime = original_mtime & ~(1ULL << 63);
+    if (clean_mtime == (uint64_t)st->st_mtime && entry->size == (uint64_t)st->st_size) {
         (*unchanged)++;
         return;
+    }
+    
+    // 调试：显示前几个不匹配的文件信息
+    static int debug_mismatch = 0;
+    if (debug_mismatch < 3) {
+        printf("🔍 时间戳/大小不匹配[%d]: %s\n", debug_mismatch, rel_path);
+        printf("   索引: mtime=%llu, size=%llu\n", clean_mtime, entry->size);
+        printf("   当前: mtime=%llu, size=%llu\n", (uint64_t)st->st_mtime, (uint64_t)st->st_size);
+        debug_mismatch++;
     }
     
     // 需要计算哈希来确认是否真的修改了
@@ -536,6 +739,9 @@ void destroy_simple_index(simple_index_t *index) {
         free(entry);
         entry = next;
     }
+    
+    // 清理哈希表
+    hash_table_clear(index);
     
     free(index);
 }

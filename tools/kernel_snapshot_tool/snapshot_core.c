@@ -399,7 +399,7 @@ static void* writer_thread(void *arg) {
 }
 
 // 创建工作线程池（有界队列版本）
-worker_pool_t* worker_pool_create(int thread_count, result_collector_t *collector, const snapshot_config_t *config, const char *snapshot_path) {
+worker_pool_t* worker_pool_create(int thread_count, result_collector_t *collector, const snapshot_config_t *config, const char *snapshot_path, const char *base_dir) {
     worker_pool_t *pool = calloc(1, sizeof(worker_pool_t));
     if (!pool) return NULL;
     
@@ -449,7 +449,7 @@ worker_pool_t* worker_pool_create(int thread_count, result_collector_t *collecto
         fprintf(pool->snapshot_file, "# Created: %ld\n", now);
         fprintf(pool->snapshot_file, "# Hash Algorithm: %s\n", 
                 config && config->use_git_hash ? "SHA1" : "SHA256");
-        fprintf(pool->snapshot_file, "# Base Dir: %s\n", ".");
+        fprintf(pool->snapshot_file, "# Base Dir: %s\n", base_dir ? base_dir : ".");
         fflush(pool->snapshot_file);
     }
     
@@ -1121,7 +1121,7 @@ int git_snapshot_create(const char *dir_path, const char *snapshot_path,
     
     // 创建工作线程池（支持流式写出）
     int thread_count = config->thread_count > 0 ? config->thread_count : sysconf(_SC_NPROCESSORS_ONLN);
-    worker_pool_t *pool = worker_pool_create(thread_count, collector, config, snapshot_path);
+    worker_pool_t *pool = worker_pool_create(thread_count, collector, config, snapshot_path, dir_path);
     if (!pool) {
         result_collector_destroy(collector);
         strcpy(result->error_message, "无法创建工作线程池");
@@ -1152,31 +1152,8 @@ int git_snapshot_create(const char *dir_path, const char *snapshot_path,
         worker_pool_wait_completion(pool);
     }
     
-    // 保存快照到文件
-    FILE *fp = fopen(snapshot_path, "w");
-    if (!fp) {
-        worker_pool_destroy(pool);
-        result_collector_destroy(collector);
-        strcpy(result->error_message, "无法创建快照文件");
-        return -1;
-    }
-    
-    // 写入头部信息
-    fprintf(fp, "# Git-Style Snapshot v1.0\n");
-    fprintf(fp, "# Created: %ld\n", time(NULL));
-    fprintf(fp, "# Total Files: %llu\n", collector->count);
-    fprintf(fp, "# Base Dir: %s\n", dir_path);
-    
-    // 写入文件条目
-    result_entry_t *entry = collector->head;
-    while (entry) {
-        fprintf(fp, "%s;%llu;%llu;%s\n", 
-               entry->entry.path, entry->entry.size, 
-               entry->entry.mtime, entry->entry.hash_hex);
-        entry = entry->next;
-    }
-    
-    fclose(fp);
+    // 快照文件已通过流式写入完成
+    // 流式写入已经正确处理了所有文件，无需重复写入
     
     // 计算耗时
     struct timespec end_time;
