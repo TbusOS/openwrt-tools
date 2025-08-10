@@ -13,7 +13,9 @@ TARGET_DIR = /usr/local/bin
 # 源文件
 SRCS = main.c \
        snapshot_core.c \
-       snapshot_diff.c
+       snapshot_diff.c \
+       index_cache_simple.c \
+       progress_bar.c
 
 OBJS = $(SRCS:.c=.o)
 

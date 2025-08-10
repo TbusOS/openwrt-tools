@@ -7,6 +7,9 @@
 - **🔄 Git风格全局快照系统**: 新增 `snapshot-create` 和 `snapshot-diff` 命令，实现类Git的文件变更跟踪
 - **🔀 混合输入架构支持**: 统一支持 commit ID 和本地补丁文件两种输入模式
 - **⚡ 高性能C助手工具**: 集成C语言编写的 `snapshot_helper`，支持大型代码库的快速处理
+- **🚀 内核快照工具 v1.0.0**: 全新发布独立的高性能内核快照系统，87,000个文件仅需2秒处理
+- **📱 Git风格用户界面**: 支持create、status、clean等Git风格命令，配备全局配置文件支持
+- **🎯 智能索引缓存**: 零文件丢失保证，采用单线程遍历+多线程处理的Git风格设计
 - **📊 实时进度显示**: 快照创建过程中显示动态进度条，支持并行处理
 - **🛠️ 增强的跨平台兼容性**: 改进的脚本目录检测和 macOS/Linux 兼容性
 - **🧠 智能冲突分析器 v7.3**: 继承 AWK 脚本精确分析，生成专业级冲突报告
@@ -19,6 +22,15 @@
 openwrt-tools/
 ├── tools/                                    # 🔧 核心工具
 │   ├── quilt_patch_manager_final.sh         # v8.0.0 混合架构主工具
+│   ├── kernel_snapshot_tool/                # 🚀 内核快照工具 v1.0.0 (重大升级)
+│   │   ├── kernel_snapshot                  # 主要可执行文件
+│   │   ├── main.c, snapshot_core.c         # 核心源码
+│   │   ├── index_cache_simple.c            # 智能索引缓存
+│   │   ├── progress_bar.c                   # 进度条显示
+│   │   ├── 使用指南.md                      # 详细中文使用指南
+│   │   ├── 快速开始示例.md                   # 实际场景示例
+│   │   ├── 配置文件示例.conf               # 配置文件模板
+│   │   └── CHANGELOG.md                     # 详细更新日志
 │   └── snapshot_tool/                       # 📸 Git风格快照系统
 │       ├── snapshot_helper.c                # C语言高性能助手
 │       ├── Makefile                         # 编译配置
@@ -35,9 +47,24 @@ openwrt-tools/
 
 ## 🎯 核心功能
 
-### 🥇 Git风格快照系统 (v8.0 核心突破)
+### 🥇 独立内核快照工具 v1.0.0 (推荐使用)
 ```bash
-# 创建项目快照
+# Git风格工作流 - 使用全局配置文件 (推荐)
+cd tools/kernel_snapshot_tool
+./kernel_snapshot create                    # 创建基线快照
+./kernel_snapshot status                    # 检查变更状态
+
+# 手动指定目录
+./kernel_snapshot create /path/to/kernel linux-6.6
+./kernel_snapshot status
+
+# 清理快照数据
+./kernel_snapshot clean
+```
+
+### 🥈 Git风格快照系统 (v8.0 集成功能)
+```bash
+# 通过主工具使用快照功能
 ./tools/quilt_patch_manager_final.sh snapshot-create [dir]
 
 # 检查所有变更 (类Git)
@@ -47,7 +74,7 @@ openwrt-tools/
 ./tools/quilt_patch_manager_final.sh snapshot-diff > changes.txt
 ```
 
-### 🥈 混合输入智能补丁制作 (v8.0 增强)
+### 🥉 混合输入智能补丁制作 (v8.0 增强)
 ```bash
 # 使用 Commit ID (传统方式)
 ./tools/quilt_patch_manager_final.sh auto-patch <commit_id> <patch_name>
@@ -56,7 +83,7 @@ openwrt-tools/
 ./tools/quilt_patch_manager_final.sh auto-patch /path/to/local.patch <patch_name>
 ```
 
-### 🥉 智能冲突分析 (v7.3 继承特性)
+### 🏅 智能冲突分析 (v7.3 继承特性)
 ```bash
 # 智能冲突分析器 - 支持混合输入
 ./tools/quilt_patch_manager_final.sh test-patch <commit_id|file_path>
@@ -110,11 +137,17 @@ sudo yum install -y curl quilt gcc make
 
 ### C助手工具编译 (v8.0 新特性)
 ```bash
-# 首次使用时编译高性能助手工具
+# 编译高性能助手工具 (legacy)
 cd tools/snapshot_tool
 make
 
+# 编译内核快照工具 v1.0.0 (推荐)
+cd tools/kernel_snapshot_tool
+make
+
 # 验证编译成功
+./kernel_snapshot --help 2>/dev/null && echo "✅ 内核快照工具编译成功"
+cd ../snapshot_tool
 ./snapshot_helper --help 2>/dev/null && echo "✅ C助手工具编译成功"
 ```
 
@@ -123,8 +156,11 @@ make
 | 文档类别 | 推荐阅读顺序 | 文档路径 |
 |---------|-------------|----------|
 | **🔰 新手入门** | 1️⃣ | [`doc/01_tool_guides/QUILT_PATCH_MANAGER_GUIDE.md`](doc/01_tool_guides/QUILT_PATCH_MANAGER_GUIDE.md) |
+| **🚀 内核快照工具** | 1️⃣⭐ | [`tools/kernel_snapshot_tool/使用指南.md`](tools/kernel_snapshot_tool/使用指南.md) |
 | **⚡ 快速上手** | 2️⃣ | [`doc/02_workflow_guides/QUILT_CVE_PATCH_CREATION_GUIDE.md`](doc/02_workflow_guides/QUILT_CVE_PATCH_CREATION_GUIDE.md) |
+| **🎯 快照工具示例** | 2️⃣⭐ | [`tools/kernel_snapshot_tool/快速开始示例.md`](tools/kernel_snapshot_tool/快速开始示例.md) |
 | **📋 标准流程** | 3️⃣ | [`doc/02_workflow_guides/CVE_PATCH_WORKFLOW.md`](doc/02_workflow_guides/CVE_PATCH_WORKFLOW.md) |
+| **🔧 配置文件模板** | 🛠️ | [`tools/kernel_snapshot_tool/配置文件示例.conf`](tools/kernel_snapshot_tool/配置文件示例.conf) |
 | **🔍 最新版本对比** | 4️⃣ | [`doc/01_tool_guides/VERSION_COMPARISON_v7.0_vs_v8.0.md`](doc/01_tool_guides/VERSION_COMPARISON_v7.0_vs_v8.0.md) |
 | **🔍 历史版本对比** | 5️⃣ | [`doc/01_tool_guides/VERSION_COMPARISON_v6.0_vs_v7.0.md`](doc/01_tool_guides/VERSION_COMPARISON_v6.0_vs_v7.0.md) |
 | **📚 完整索引** | 🔗 | [`doc/DOCUMENTATION_INDEX.md`](doc/DOCUMENTATION_INDEX.md) |
@@ -140,9 +176,15 @@ make
 ./tools/quilt_patch_manager_final.sh auto-patch /tmp/cve.patch CVE-2024-12345
 ```
 
-### 场景 2: 大型项目变更跟踪 (v8.0 新场景)
+### 场景 2: 大型项目变更跟踪 (v8.0 新场景 - 推荐使用独立工具)
 ```bash
-# 创建项目基准快照
+# 方式1: 使用独立内核快照工具 (推荐)
+cd tools/kernel_snapshot_tool
+./kernel_snapshot create                    # 创建基准快照
+# ... 进行各种代码修改 ...
+./kernel_snapshot status > all_changes.txt # 输出所有变更
+
+# 方式2: 通过主工具使用
 ./tools/quilt_patch_manager_final.sh snapshot-create
 
 # 进行各种修改后检查变更

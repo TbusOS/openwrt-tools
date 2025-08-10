@@ -7,12 +7,168 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <unistd.h>
 
-// 暂时未实现的状态检查功能
+// 实时状态检查功能 - 基于快照的实时目录对比
 int git_snapshot_status(const char *snapshot_path, const char *dir_path,
                        const snapshot_config_t *config, snapshot_result_t *result) {
-    strcpy(result->error_message, "status功能尚未实现");
-    return -1;
+    FILE *snapshot_file = NULL;
+    git_index_t *baseline_index = NULL, *current_index = NULL;
+    int ret = -1;
+    
+    memset(result, 0, sizeof(snapshot_result_t));
+    
+    // 1. 载入基线快照
+    snapshot_file = fopen(snapshot_path, "r");
+    if (!snapshot_file) {
+        snprintf(result->error_message, sizeof(result->error_message), 
+                "无法打开快照文件: %s", snapshot_path);
+        goto cleanup;
+    }
+    
+    baseline_index = git_index_create(50000);
+    if (!baseline_index) {
+        strcpy(result->error_message, "内存分配失败");
+        goto cleanup;
+    }
+    
+    if (load_snapshot_file(snapshot_file, baseline_index) < 0) {
+        strcpy(result->error_message, "读取基线快照失败");
+        goto cleanup;
+    }
+    
+    if (config->verbose) {
+        printf("📖 已载入基线快照：%llu 个文件\n", baseline_index->count);
+    }
+    
+    // 2. 实时扫描当前目录
+    current_index = git_index_create(50000);
+    if (!current_index) {
+        strcpy(result->error_message, "内存分配失败");
+        goto cleanup;
+    }
+    
+    if (config->verbose) {
+        printf("🔍 正在扫描当前目录：%s\n", dir_path);
+    }
+    
+    // 创建临时的结果收集器进行实时扫描
+    result_collector_t *collector = result_collector_create();
+    if (!collector) {
+        strcpy(result->error_message, "无法创建结果收集器");
+        goto cleanup;
+    }
+    
+    // 使用简化的工作线程池进行实时扫描（不写文件）
+    int thread_count = config->thread_count > 0 ? config->thread_count : sysconf(_SC_NPROCESSORS_ONLN);
+    worker_pool_t *pool = worker_pool_create(thread_count, collector, config, NULL);  // 不创建快照文件
+    if (!pool) {
+        result_collector_destroy(collector);
+        strcpy(result->error_message, "无法创建工作线程池");
+        goto cleanup;
+    }
+    
+    // 执行实时目录扫描
+    uint64_t total_files = 0;
+    if (scan_directory_recursive(dir_path, pool, config, &total_files) < 0) {
+        worker_pool_destroy(pool);
+        result_collector_destroy(collector);
+        strcpy(result->error_message, "目录扫描失败");
+        goto cleanup;
+    }
+    
+    // 3. 收集结果（先从结果队列获取，再等待线程完成）
+    int queue_items = 0;
+    
+    // 等待一小段时间让工作线程完成
+    usleep(10000);  // 10ms
+    
+    // 从结果队列中获取所有结果
+    if (pool->result_queue) {
+        while (pool->result_queue->size > 0) {
+            result_entry_t *result_item = bounded_result_queue_pop(pool->result_queue);
+            if (result_item) {
+                if (result_item->error_code == 0) {
+                    if (git_index_add(current_index, &result_item->entry) < 0) {
+                        free(result_item);
+                        worker_pool_destroy(pool);
+                        result_collector_destroy(collector);
+                        strcpy(result->error_message, "索引构建失败");
+                        goto cleanup;
+                    }
+                    queue_items++;
+                }
+                free(result_item);
+            } else {
+                break;  // 队列为空
+            }
+        }
+    }
+    
+    // 等待所有工作线程完成（但不销毁队列）
+    pool->shutdown = 1;
+    
+    // 关闭工作队列
+    if (pool->work_queue) {
+        pthread_mutex_lock(&pool->work_queue->lock);
+        pool->work_queue->shutdown = 1;
+        pthread_cond_broadcast(&pool->work_queue->not_empty);
+        pthread_mutex_unlock(&pool->work_queue->lock);
+    }
+    
+    // 等待工作线程完成
+    for (int i = 0; i < pool->thread_count; i++) {
+        pthread_join(pool->threads[i], NULL);
+    }
+    
+    // 再次检查结果队列中的剩余结果
+    if (pool->result_queue) {
+        while (pool->result_queue->size > 0) {
+            result_entry_t *result_item = bounded_result_queue_pop(pool->result_queue);
+            if (result_item) {
+                if (result_item->error_code == 0) {
+                    if (git_index_add(current_index, &result_item->entry) < 0) {
+                        free(result_item);
+                        worker_pool_destroy(pool);
+                        result_collector_destroy(collector);
+                        strcpy(result->error_message, "索引构建失败");
+                        goto cleanup;
+                    }
+                    queue_items++;
+                }
+                free(result_item);
+            } else {
+                break;
+            }
+        }
+    }
+    
+    if (config->verbose) {
+        printf("📊 扫描完成：发现 %llu 个文件\n", total_files);
+        printf("🔍 成功添加到索引：%d 个文件\n", queue_items);
+        printf("🔍 当前索引文件数：%llu\n", current_index->count);
+    }
+    
+    worker_pool_destroy(pool);
+    result_collector_destroy(collector);
+    
+    // 4. 执行差异分析
+    git_index_sort(baseline_index);
+    git_index_sort(current_index);
+    
+    if (perform_diff_analysis(baseline_index, current_index, config, result) < 0) {
+        strcpy(result->error_message, "差异分析失败");
+        goto cleanup;
+    }
+    
+    ret = 0;
+    
+cleanup:
+    if (snapshot_file) fclose(snapshot_file);
+    if (baseline_index) git_index_destroy(baseline_index);
+    if (current_index) git_index_destroy(current_index);
+    
+    return ret;
 }
 
 // 快照对比功能 - 100%准确的差异检测
@@ -209,7 +365,7 @@ int parse_snapshot_line(const char *line, file_entry_t *entry) {
     if (newline) *newline = '\0';
     
     token = strtok(line_copy, ";");
-    while (token && field < 4) {
+    while (token && field < 5) {
         switch (field) {
             case 0: // 路径
                 strncpy(entry->path, token, MAX_PATH_LEN - 1);
@@ -221,7 +377,10 @@ int parse_snapshot_line(const char *line, file_entry_t *entry) {
             case 2: // 修改时间
                 entry->mtime = strtoull(token, NULL, 10);
                 break;
-            case 3: // 哈希
+            case 3: // 文件权限
+                entry->mode = (mode_t)strtoul(token, NULL, 8);  // 八进制
+                break;
+            case 4: // 哈希
                 strncpy(entry->hash_hex, token, HASH_HEX_SIZE - 1);
                 entry->hash_hex[HASH_HEX_SIZE - 1] = '\0';
                 // 将十六进制字符串转换为二进制
@@ -233,7 +392,7 @@ int parse_snapshot_line(const char *line, file_entry_t *entry) {
     }
     
     free(line_copy);
-    return (field == 4) ? 0 : -1;
+    return (field >= 4) ? 0 : -1;  // 至少解析4个字段（兼容旧格式）
 }
 
 // 十六进制字符串转二进制
