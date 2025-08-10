@@ -7,6 +7,9 @@ A **hybrid architecture high-performance patch management platform** designed sp
 - **🔄 Git-style Global Snapshot System**: Added `snapshot-create` and `snapshot-diff` commands for Git-like file change tracking
 - **🔀 Hybrid Input Architecture Support**: Unified support for commit ID and local patch file input modes  
 - **⚡ High-Performance C Assistant Tool**: Integrated C-language `snapshot_helper` for fast processing of large codebases
+- **🚀 Kernel Snapshot Tool v1.0.0**: Brand new independent high-performance kernel snapshot system, processes 87,000 files in just 2 seconds
+- **📱 Git-style User Interface**: Supports create, status, clean Git-style commands with global configuration file support
+- **🎯 Smart Index Caching**: Zero file loss guarantee with single-thread traversal + multi-thread processing Git-style design
 - **📊 Real-time Progress Display**: Dynamic progress bars during snapshot creation with parallel processing support
 - **🛠️ Enhanced Cross-platform Compatibility**: Improved script directory detection and macOS/Linux compatibility
 - **🧠 Smart Conflict Analysis v7.3**: Inherited AWK script precise analysis, generating professional-grade conflict reports
@@ -19,6 +22,15 @@ A **hybrid architecture high-performance patch management platform** designed sp
 openwrt-tools/
 ├── tools/                                    # 🔧 Core Tools
 │   ├── quilt_patch_manager_final.sh         # v8.0.0 Hybrid Architecture Main Tool
+│   ├── kernel_snapshot_tool/                # 🚀 Kernel Snapshot Tool v1.0.0 (Major Upgrade)
+│   │   ├── kernel_snapshot                  # Main Executable
+│   │   ├── main.c, snapshot_core.c         # Core Source Code
+│   │   ├── index_cache_simple.c            # Smart Index Caching
+│   │   ├── progress_bar.c                   # Progress Bar Display
+│   │   ├── 使用指南.md                      # Detailed Chinese Usage Guide
+│   │   ├── 快速开始示例.md                   # Quick Start Examples
+│   │   ├── 配置文件示例.conf               # Configuration File Template
+│   │   └── CHANGELOG.md                     # Detailed Changelog
 │   └── snapshot_tool/                       # 📸 Git-style Snapshot System
 │       ├── snapshot_helper.c                # C High-Performance Assistant
 │       ├── Makefile                         # Compilation Configuration
@@ -35,9 +47,24 @@ openwrt-tools/
 
 ## 🎯 Core Features
 
-### 🥇 Git-style Snapshot System (v8.0 Core Breakthrough)
+### 🥇 Independent Kernel Snapshot Tool v1.0.0 (Recommended)
 ```bash
-# Create project snapshot
+# Git-style workflow - using global configuration file (recommended)
+cd tools/kernel_snapshot_tool
+./kernel_snapshot create                    # Create baseline snapshot
+./kernel_snapshot status                    # Check change status
+
+# Manual directory specification
+./kernel_snapshot create /path/to/kernel linux-6.6
+./kernel_snapshot status
+
+# Clean snapshot data
+./kernel_snapshot clean
+```
+
+### 🥈 Git-style Snapshot System (v8.0 Integrated Feature)
+```bash
+# Using snapshot functionality through main tool
 ./tools/quilt_patch_manager_final.sh snapshot-create [dir]
 
 # Check all changes (Git-like)
@@ -47,7 +74,7 @@ openwrt-tools/
 ./tools/quilt_patch_manager_final.sh snapshot-diff > changes.txt
 ```
 
-### 🥈 Hybrid Input Intelligent Patch Creation (v8.0 Enhanced)
+### 🥉 Hybrid Input Intelligent Patch Creation (v8.0 Enhanced)
 ```bash
 # Using Commit ID (traditional way)
 ./tools/quilt_patch_manager_final.sh auto-patch <commit_id> <patch_name>
@@ -56,7 +83,7 @@ openwrt-tools/
 ./tools/quilt_patch_manager_final.sh auto-patch /path/to/local.patch <patch_name>
 ```
 
-### 🥉 Smart Conflict Analysis (v7.3 Inherited Feature)
+### 🏅 Smart Conflict Analysis (v7.3 Inherited Feature)
 ```bash
 # Smart conflict analyzer - supports hybrid input
 ./tools/quilt_patch_manager_final.sh test-patch <commit_id|file_path>
@@ -110,11 +137,17 @@ sudo yum install -y curl quilt gcc make
 
 ### C Assistant Tool Compilation (v8.0 New Feature)
 ```bash
-# Compile high-performance assistant tool on first use
+# Compile legacy high-performance assistant tool
 cd tools/snapshot_tool
 make
 
+# Compile Kernel Snapshot Tool v1.0.0 (recommended)
+cd tools/kernel_snapshot_tool
+make
+
 # Verify compilation success
+./kernel_snapshot --help 2>/dev/null && echo "✅ Kernel snapshot tool compiled successfully"
+cd ../snapshot_tool
 ./snapshot_helper --help 2>/dev/null && echo "✅ C assistant tool compiled successfully"
 ```
 
@@ -123,8 +156,11 @@ make
 | Document Category | Recommended Reading Order | Document Path |
 |-------------------|-------------------------|---------------|
 | **🔰 Beginner Guide** | 1️⃣ | [`doc/01_tool_guides/QUILT_PATCH_MANAGER_GUIDE.md`](doc/01_tool_guides/QUILT_PATCH_MANAGER_GUIDE.md) |
+| **🚀 Kernel Snapshot Tool** | 1️⃣⭐ | [`tools/kernel_snapshot_tool/使用指南.md`](tools/kernel_snapshot_tool/使用指南.md) |
 | **⚡ Quick Start** | 2️⃣ | [`doc/02_workflow_guides/QUILT_CVE_PATCH_CREATION_GUIDE.md`](doc/02_workflow_guides/QUILT_CVE_PATCH_CREATION_GUIDE.md) |
+| **🎯 Snapshot Tool Examples** | 2️⃣⭐ | [`tools/kernel_snapshot_tool/快速开始示例.md`](tools/kernel_snapshot_tool/快速开始示例.md) |
 | **📋 Standard Process** | 3️⃣ | [`doc/02_workflow_guides/CVE_PATCH_WORKFLOW.md`](doc/02_workflow_guides/CVE_PATCH_WORKFLOW.md) |
+| **🔧 Configuration Template** | 🛠️ | [`tools/kernel_snapshot_tool/配置文件示例.conf`](tools/kernel_snapshot_tool/配置文件示例.conf) |
 | **🔍 Latest Version Comparison** | 4️⃣ | [`doc/01_tool_guides/VERSION_COMPARISON_v7.0_vs_v8.0.md`](doc/01_tool_guides/VERSION_COMPARISON_v7.0_vs_v8.0.md) |
 | **🔍 Historical Version Comparison** | 5️⃣ | [`doc/01_tool_guides/VERSION_COMPARISON_v6.0_vs_v7.0.md`](doc/01_tool_guides/VERSION_COMPARISON_v6.0_vs_v7.0.md) |
 | **📚 Complete Index** | 🔗 | [`doc/DOCUMENTATION_INDEX.md`](doc/DOCUMENTATION_INDEX.md) |
@@ -140,9 +176,15 @@ make
 ./tools/quilt_patch_manager_final.sh auto-patch /tmp/cve.patch CVE-2024-12345
 ```
 
-### Scenario 2: Large Project Change Tracking (v8.0 New Scenario)
+### Scenario 2: Large Project Change Tracking (v8.0 New Scenario - Recommended Independent Tool)
 ```bash
-# Create project baseline snapshot
+# Method 1: Using independent kernel snapshot tool (recommended)
+cd tools/kernel_snapshot_tool
+./kernel_snapshot create                    # Create baseline snapshot
+# ... make various code modifications ...
+./kernel_snapshot status > all_changes.txt # Output all changes
+
+# Method 2: Using main tool
 ./tools/quilt_patch_manager_final.sh snapshot-create
 
 # Check changes after various modifications
