@@ -9,6 +9,7 @@
 #include <string.h>
 #include <getopt.h>
 #include <unistd.h>
+#include <inttypes.h>
 
 static void print_usage(const char *program_name) {
     printf("Git风格快照工具 - 零文件丢失设计\n\n");
@@ -275,7 +276,7 @@ static int cmd_create(int argc, char *argv[], const snapshot_config_t *config) {
         if (local_config.show_progress) {
             // 使用简洁的进度条总结
             printf("\n✅ 快照创建完成!\n");
-            printf("📊 处理摘要: %llu/%llu 文件 (%.1f%%), 耗时: %llu ms\n",
+            printf("📊 处理摘要: %"PRIu64"/%"PRIu64" 文件 (%.1f%%), 耗时: %"PRIu64" ms\n",
                    result.processed_files, result.total_files,
                    result.total_files > 0 ? (double)result.processed_files * 100.0 / result.total_files : 0,
                    result.elapsed_ms);
@@ -283,16 +284,16 @@ static int cmd_create(int argc, char *argv[], const snapshot_config_t *config) {
             // 传统详细输出
             printf("✅ 快照创建成功!\n");
             printf("📊 统计信息:\n");
-            printf("   扫描文件: %llu\n", result.total_files);
-            printf("   成功处理: %llu\n", result.processed_files);
-            printf("   失败文件: %llu\n", result.failed_files);
+            printf("   扫描文件: %"PRIu64"\n", result.total_files);
+            printf("   成功处理: %"PRIu64"\n", result.processed_files);
+            printf("   失败文件: %"PRIu64"\n", result.failed_files);
             printf("   文件完整率: %.2f%%\n", 
                    result.total_files > 0 ? 
                    (double)result.processed_files * 100.0 / result.total_files : 0);
             printf("   处理速度: %.1f 文件/秒\n",
                    result.elapsed_ms > 0 ? 
                    (double)result.processed_files * 1000.0 / result.elapsed_ms : 0);
-            printf("   总耗时: %llu 毫秒\n", result.elapsed_ms);
+            printf("   总耗时: %"PRIu64" 毫秒\n", result.elapsed_ms);
         }
         
         // 创建索引缓存以优化后续status命令性能
@@ -343,7 +344,7 @@ static int cmd_create(int argc, char *argv[], const snapshot_config_t *config) {
         }
         
         if (result.failed_files > 0) {
-            printf("⚠️  警告: 有 %llu 个文件处理失败\n", result.failed_files);
+            printf("⚠️  警告: 有 %"PRIu64" 个文件处理失败\n", result.failed_files);
         }
     } else {
         printf("❌ 快照创建失败: %s\n", result.error_message);
@@ -478,10 +479,10 @@ static int cmd_status(int argc, char *argv[], const snapshot_config_t *config) {
     
     if (ret == 0) {
         printf("📊 状态统计:\n");
-        printf("   新增文件: %llu\n", result.added_files);
-        printf("   修改文件: %llu\n", result.modified_files);
-        printf("   删除文件: %llu\n", result.deleted_files);
-        printf("   总变化: %llu\n", 
+        printf("   新增文件: %"PRIu64"\n", result.added_files);
+        printf("   修改文件: %"PRIu64"\n", result.modified_files);
+        printf("   删除文件: %"PRIu64"\n", result.deleted_files);
+        printf("   总变化: %"PRIu64"\n", 
                result.added_files + result.modified_files + result.deleted_files);
     } else {
         printf("❌ 状态检查失败: %s\n", result.error_message);
@@ -591,7 +592,8 @@ static int cmd_clean(int argc, char *argv[], const snapshot_config_t *config) {
     printf("\n📋 将被删除的文件:\n");
     char ls_cmd[MAX_PATH_LEN + 20];
     snprintf(ls_cmd, sizeof(ls_cmd), "ls -la %s 2>/dev/null || echo '   (目录为空或无法访问)'", snapshot_dir);
-    system(ls_cmd);
+    int ls_result = system(ls_cmd);
+    (void)ls_result;  // ls失败不影响清理逻辑，但显式接收返回值避免警告
     
     // 确认删除（除非使用--force）
     if (!force) {
@@ -643,9 +645,9 @@ static int cmd_diff(int argc, char *argv[], const snapshot_config_t *config) {
     
     if (ret == 0) {
         printf("📊 差异统计:\n");
-        printf("   新增文件: %llu\n", result.added_files);
-        printf("   修改文件: %llu\n", result.modified_files);
-        printf("   删除文件: %llu\n", result.deleted_files);
+        printf("   新增文件: %"PRIu64"\n", result.added_files);
+        printf("   修改文件: %"PRIu64"\n", result.modified_files);
+        printf("   删除文件: %"PRIu64"\n", result.deleted_files);
     } else {
         printf("❌ 快照对比失败: %s\n", result.error_message);
     }

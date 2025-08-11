@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <time.h>
 #include <sys/stat.h>
 
@@ -52,6 +53,43 @@ int scan_directory_recursive(const char *dir_path, worker_pool_t *pool,
                 fprintf(stderr, "警告: 无法获取文件状态 %s: %s\n", full_path, strerror(errno));
             }
             continue;
+        }
+        
+        // 处理符号链接：像git一样记录符号链接本身，并递归处理目标
+        if (S_ISLNK(st.st_mode)) {
+            // 记录符号链接本身（作为常规文件处理）
+            (*total_files)++;
+            // 添加符号链接到工作队列（阻塞添加确保不丢失）
+            while (worker_pool_add_work(pool, full_path) != 0) {
+                usleep(1000);  // 1ms
+            }
+            
+            // 检查符号链接指向的目标
+            struct stat target_st;
+            if (stat(full_path, &target_st) == 0) {
+                // 如果指向目录，递归处理目录内容
+                if (S_ISDIR(target_st.st_mode)) {
+                    // 检查目录是否应该被忽略
+                    char combined_patterns[MAX_PATH_LEN * 2];
+                    if (config->exclude_patterns && strlen(config->exclude_patterns) > 0) {
+                        snprintf(combined_patterns, sizeof(combined_patterns), ".snapshot,%s", config->exclude_patterns);
+                    } else {
+                        strncpy(combined_patterns, ".snapshot", sizeof(combined_patterns) - 1);
+                        combined_patterns[sizeof(combined_patterns) - 1] = '\0';
+                    }
+                    
+                    if (!is_file_ignored(full_path, combined_patterns)) {
+                        // 递归处理符号链接指向的目录
+                        scan_directory_recursive(full_path, pool, config, total_files);
+                    }
+                }
+                // 如果指向文件，会在后续的遍历中被发现和处理
+            } else {
+                if (config->verbose) {
+                    fprintf(stderr, "警告: 符号链接目标不存在 %s\n", full_path);
+                }
+            }
+            continue; // 符号链接已处理完毕，继续下一个
         }
         
         if (S_ISDIR(st.st_mode)) {
@@ -94,7 +132,7 @@ int scan_directory_recursive(const char *dir_path, worker_pool_t *pool,
             }
             
                     if ((*total_files % 1000) == 0) { // 每1000个文件显示一次进度
-            printf("\r🔍 已扫描: %llu 个文件", *total_files);
+            printf("\r🔍 已扫描: %"PRIu64" 个文件", *total_files);
             fflush(stdout);
         }
         }
@@ -373,17 +411,17 @@ static void* writer_thread(void *arg) {
         
         // 写入快照条目到文件（流式写出）
         if (pool->snapshot_file && result->error_code == 0) {
-            fprintf(pool->snapshot_file, "%s;%llu;%llu;%o;%s\n",
+            fprintf(pool->snapshot_file, "%s;%"PRIu64";%"PRIu64";%o;%s\n",
                     result->entry.path,
-                    (unsigned long long)result->entry.size,
-                    (unsigned long long)result->entry.mtime,
+                    result->entry.size,
+                    result->entry.mtime,
                     result->entry.mode,  // 新增文件权限
                     result->entry.hash_hex);
             
             written_count++;
             
             if (pool->verbose && (written_count % 10000) == 0) {
-                printf("📝 已写入 %llu 个文件条目...\r", written_count);
+                printf("📝 已写入 %"PRIu64" 个文件条目...\r", written_count);
                 fflush(stdout);
             }
         }
@@ -392,7 +430,7 @@ static void* writer_thread(void *arg) {
     }
     
     if (pool->verbose) {
-        printf("\n✅ 写入线程完成，共写入 %llu 个条目\n", written_count);
+        printf("\n✅ 写入线程完成，共写入 %"PRIu64" 个条目\n", written_count);
     }
     
     return NULL;
@@ -693,8 +731,8 @@ int process_file_content(const char *file_path, file_entry_t *entry, int use_git
         return -1;
     }
     
-    if (!S_ISREG(st.st_mode)) {
-        return -2;  // 不是普通文件
+    if (!S_ISREG(st.st_mode) && !S_ISLNK(st.st_mode)) {
+        return -2;  // 不是普通文件或符号链接
     }
     
     // 填充基本信息（路径规范化）
@@ -715,12 +753,33 @@ int process_file_content(const char *file_path, file_entry_t *entry, int use_git
     // 填充新增的元数据
     entry->mode = st.st_mode;
     
-    // 计算哈希（现在默认使用SHA256全量哈希）
+    // 计算哈希（符号链接和普通文件分别处理）
     int hash_result;
-    if (use_git_hash) {
-        hash_result = calculate_git_hash(file_path, entry->hash);
+    if (S_ISLNK(st.st_mode)) {
+        // 对于符号链接，使用目标路径的简单哈希
+        char link_target[MAX_PATH_LEN];
+        ssize_t link_len = readlink(file_path, link_target, sizeof(link_target) - 1);
+        if (link_len > 0) {
+            link_target[link_len] = '\0';
+            // 基于目标路径生成简单哈希（使用CRC32或简单字符串哈希）
+            uint32_t simple_hash = 0;
+            for (int i = 0; i < link_len; i++) {
+                simple_hash = simple_hash * 31 + (unsigned char)link_target[i];
+            }
+            // 将simple_hash转换为256位哈希格式
+            memset(entry->hash, 0, 32);
+            memcpy(entry->hash, &simple_hash, sizeof(simple_hash));
+            hash_result = 0;
+        } else {
+            return -3;  // 无法读取符号链接目标
+        }
     } else {
-        hash_result = calculate_sha256_hash(file_path, entry->hash);  // 使用全量SHA256替代采样
+        // 普通文件，按原来的方式计算
+        if (use_git_hash) {
+            hash_result = calculate_git_hash(file_path, entry->hash);
+        } else {
+            hash_result = calculate_sha256_hash(file_path, entry->hash);
+        }
     }
     
     if (hash_result < 0) {
@@ -741,8 +800,8 @@ int process_file_quick_check(const char *file_path, file_entry_t *entry) {
         return -1;
     }
     
-    if (!S_ISREG(st.st_mode)) {
-        return -2;  // 不是普通文件
+    if (!S_ISREG(st.st_mode) && !S_ISLNK(st.st_mode)) {
+        return -2;  // 不是普通文件或符号链接
     }
     
     // 填充基本信息（路径规范化）
@@ -1142,7 +1201,7 @@ int git_snapshot_create(const char *dir_path, const char *snapshot_path,
     }
     
     if (config->verbose) {
-        printf("\n文件扫描完成，共发现 %llu 个文件，等待处理完成...\n", total_files);
+        printf("\n文件扫描完成，共发现 %"PRIu64" 个文件，等待处理完成...\n", total_files);
     }
     
     // 等待所有文件处理完成，同时显示进度条
@@ -1169,17 +1228,17 @@ int git_snapshot_create(const char *dir_path, const char *snapshot_path,
     
     if (config->verbose) {
         printf("快照创建完成!\n");
-        printf("  扫描文件: %llu\n", result->total_files);
-        printf("  成功处理: %llu\n", result->processed_files);
-        printf("  失败文件: %llu\n", result->failed_files);
-        printf("  耗时: %llu 毫秒\n", result->elapsed_ms);
+        printf("  扫描文件: %"PRIu64"\n", result->total_files);
+        printf("  成功处理: %"PRIu64"\n", result->processed_files);
+        printf("  失败文件: %"PRIu64"\n", result->failed_files);
+        printf("  耗时: %"PRIu64" 毫秒\n", result->elapsed_ms);
         printf("  速度: %.1f 文件/秒\n", 
                result->elapsed_ms > 0 ? (double)result->processed_files * 1000.0 / result->elapsed_ms : 0);
     }
     
     // 显示进度条（简单版本）
     if (config->show_progress && collector->count > 0) {
-        printf("\r🔄 处理完成: %llu 个文件", collector->count);
+        printf("\r🔄 处理完成: %"PRIu64" 个文件", collector->count);
         fflush(stdout);
         printf("\n");
     }
@@ -1428,8 +1487,8 @@ int save_workspace_config(const char *workspace_root, const workspace_config_t *
     fprintf(fp, "project_name=%s\n", config->project_name);
     fprintf(fp, "workspace_dir=%s\n", config->workspace_dir);
     fprintf(fp, "ignore_patterns=%s\n", config->ignore_patterns);
-    fprintf(fp, "created_time=%llu\n", config->created_time);
-    fprintf(fp, "updated_time=%llu\n", config->updated_time);
+    fprintf(fp, "created_time=%"PRIu64"\n", config->created_time);
+    fprintf(fp, "updated_time=%"PRIu64"\n", config->updated_time);
     
     // 保持与旧格式的兼容性
     fprintf(fp, "\n# 兼容性字段\n");

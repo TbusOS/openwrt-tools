@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
+#include <inttypes.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -123,7 +125,7 @@ static void hash_table_clear(simple_index_t *index) {
 }
 
 // 提取相对路径的辅助函数
-static const char* extract_relative_path(const char *full_path, const char *base_path) {
+__attribute__((unused)) static const char* extract_relative_path(const char *full_path, const char *base_path) {
     if (!base_path || strlen(base_path) == 0) {
         return full_path;
     }
@@ -223,7 +225,7 @@ int git_status_with_index(const char *workspace_root, const snapshot_config_t *c
         return -1;
     }
     
-    printf("✅ 索引载入完成，包含 %llu 个文件\n", index->file_count);
+    printf("✅ 索引载入完成，包含 %"PRIu64" 个文件\n", index->file_count);
     
     // 构建完整的忽略模式（与create命令保持一致）
     char combined_patterns[MAX_PATH_LEN * 2];
@@ -248,14 +250,14 @@ int git_status_with_index(const char *workspace_root, const snapshot_config_t *c
     // 显示统计结果
     printf("\n📊 状态检查完成!\n");
     printf("================\n");
-    printf("🧮 哈希计算: %llu (仅 %.1f%% 的文件)\n", hash_calculations, 
+    printf("🧮 哈希计算: %"PRIu64" (仅 %.1f%% 的文件)\n", hash_calculations, 
            index->file_count > 0 ? (double)hash_calculations * 100.0 / index->file_count : 0);
     printf("\n📈 变更统计:\n");
-    printf("  🆕 新增文件: %llu\n", changes.added_count);
-    printf("  ✏️  修改文件: %llu\n", changes.modified_count);
-    printf("  🗑️  删除文件: %llu\n", changes.deleted_count);
-    printf("  ✅ 未变更: %llu\n", unchanged);
-    printf("  📊 总变更: %llu\n", changes.added_count + changes.modified_count + changes.deleted_count);
+    printf("  🆕 新增文件: %"PRIu64"\n", changes.added_count);
+    printf("  ✏️  修改文件: %"PRIu64"\n", changes.modified_count);
+    printf("  🗑️  删除文件: %"PRIu64"\n", changes.deleted_count);
+    printf("  ✅ 未变更: %"PRIu64"\n", unchanged);
+    printf("  📊 总变更: %"PRIu64"\n", changes.added_count + changes.modified_count + changes.deleted_count);
     
     // 性能统计
     double efficiency = index->file_count > 0 ? 
@@ -274,6 +276,7 @@ int git_status_with_index(const char *workspace_root, const snapshot_config_t *c
 // 在创建快照时同时建立索引缓存
 int create_index_during_snapshot(const char *workspace_root, const char *snapshot_path, 
                                 const snapshot_config_t *config) {
+    (void)config;  // 参数保留用于未来扩展
     printf("🔧 创建索引缓存...\n");
     
     char index_path[MAX_PATH_LEN];
@@ -294,7 +297,7 @@ int create_index_during_snapshot(const char *workspace_root, const char *snapsho
         return -1;
     }
     
-    printf("✅ 索引缓存已创建: %llu 个文件\n", index->file_count);
+    printf("✅ 索引缓存已创建: %"PRIu64" 个文件\n", index->file_count);
     destroy_simple_index(index);
     return 0;
 }
@@ -362,7 +365,7 @@ simple_index_t* create_simple_index_from_snapshot(const char *snapshot_path) {
         // 调试：显示前几个解析的条目
         static int debug_parse = 0;
         if (debug_parse < 3) {
-            printf("🔧 解析条目[%d]: path='%s', size_str='%s' -> size=%llu\n", 
+            printf("🔧 解析条目[%d]: path='%s', size_str='%s' -> size=%"PRIu64"\n", 
                    debug_parse, path, size_str, entry->size);
             debug_parse++;
         }
@@ -442,7 +445,7 @@ simple_index_t* load_simple_index(const char *index_path) {
         }
         
         if (i < 3) {
-            printf("🔧 加载条目[%llu]: path='%s', size=%llu\n", 
+            printf("🔧 加载条目[%"PRIu64"]: path='%s', size=%"PRIu64"\n", 
                    i, entry->path, entry->size);
         }
         
@@ -483,7 +486,7 @@ int save_simple_index(simple_index_t *index, const char *index_path) {
     int debug_save = 0;
     while (entry) {
         if (debug_save < 3) {
-            printf("🔧 保存条目[%d]: path='%s', size=%llu\n", 
+            printf("🔧 保存条目[%d]: path='%s', size=%"PRIu64"\n", 
                    debug_save, entry->path, entry->size);
             debug_save++;
         }
@@ -672,8 +675,25 @@ void simple_scan_directory_with_list(const char *base_path, const char *current_
         snprintf(full_path, sizeof(full_path), "%s/%s", current_path, entry->d_name);
         
         struct stat st;
-        if (stat(full_path, &st) != 0) {
+        if (lstat(full_path, &st) != 0) {
             continue;
+        }
+        
+        // 处理符号链接：像git一样记录符号链接本身，并递归处理目标
+        if (S_ISLNK(st.st_mode)) {
+            // 检查符号链接本身
+            simple_check_file_with_list(base_path, full_path, &st, index, changes, unchanged, hash_calculations);
+            
+            // 检查符号链接指向的目标
+            struct stat target_st;
+            if (stat(full_path, &target_st) == 0) {
+                // 如果指向目录，递归处理目录内容
+                if (S_ISDIR(target_st.st_mode)) {
+                    simple_scan_directory_with_list(base_path, full_path, index, changes, unchanged, hash_calculations, ignore_patterns);
+                }
+                // 如果指向文件，会在后续的遍历中被发现和处理
+            }
+            continue; // 符号链接已处理完毕，继续下一个
         }
         
         if (S_ISDIR(st.st_mode)) {
@@ -713,19 +733,32 @@ void simple_check_file_with_list(const char *base_path, const char *file_path, s
         return;
     }
     
-    // 调试：显示前几个不匹配的文件信息
-    static int debug_mismatch = 0;
-    if (debug_mismatch < 3) {
-        printf("🔍 时间戳/大小不匹配[%d]: %s\n", debug_mismatch, rel_path);
-        printf("   索引: mtime=%llu, size=%llu\n", clean_mtime, entry->size);
-        printf("   当前: mtime=%llu, size=%llu\n", (uint64_t)st->st_mtime, (uint64_t)st->st_size);
-        debug_mismatch++;
-    }
-    
-    // 需要计算哈希来确认是否真的修改了
+    // 时间戳或大小不匹配，需要进一步验证内容是否真正变化
+    // 这里采用git的策略：计算内容哈希进行精确比较
     (*hash_calculations)++;
     
-    // 简化：假设mtime或size变化就是修改了
+    // 计算当前文件的哈希
+    unsigned char current_hash[HASH_SIZE];
+    char current_hash_hex[HASH_HEX_SIZE];
+    
+    // 计算SHA256哈希
+    if (calculate_sha256_hash(file_path, current_hash) < 0) {
+        // 哈希计算失败，保守起见认为文件被修改
+        add_file_change(changes, rel_path, 'M');
+        return;
+    }
+    
+    // 转换为十六进制字符串
+    hash_to_hex(current_hash, current_hash_hex);
+    
+    // 比较哈希值，只有内容真正变化才报告修改（git行为）
+    if (strcmp(current_hash_hex, entry->hash_hex) == 0) {
+        // 内容未变化，虽然时间戳变了但不算修改（符合git行为）
+        (*unchanged)++;
+        return;
+    }
+    
+    // 内容确实发生了变化
     add_file_change(changes, rel_path, 'M');
 }
 

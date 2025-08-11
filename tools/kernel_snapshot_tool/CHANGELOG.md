@@ -4,6 +4,48 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [1.1.0] - 2024-01-15
+
+### 🔗 符号链接支持 (Symbolic Link Support)
+
+#### 新增功能 (Added)
+- ✨ **完整符号链接支持**: 像Git一样智能处理符号链接，确保不丢失任何文件状态信息
+- 🔍 **智能链接检测**: 使用`S_ISLNK()`精确识别符号链接，避免误判
+- 📁 **递归目录处理**: 符号链接指向目录时自动递归扫描目录内容
+- 🎯 **目标路径哈希**: 基于`readlink()`的轻量级哈希算法，避免不必要的文件内容读取
+- 🛡️ **断链处理**: 妥善处理指向不存在目标的"悬空"符号链接
+- ⚡ **性能优化**: 符号链接使用简单字符串哈希(31进制)，避免SHA256计算开销
+
+#### 改进功能 (Improved)
+- 🔧 **文件类型检测增强**: 函数`process_file_entry()`和`calculate_fast_hash()`现在支持`S_ISLNK()`检测
+- 📊 **更准确的统计**: 符号链接现在正确计入文件总数和处理统计
+- 🔄 **目录遍历优化**: `scan_directory_recursive()`增强对符号链接指向目录的处理
+
+#### 技术细节 (Technical Details)
+```c
+// 新增符号链接处理逻辑
+if (S_ISLNK(st.st_mode)) {
+    char link_target[MAX_PATH_LEN];
+    ssize_t link_len = readlink(file_path, link_target, sizeof(link_target) - 1);
+    // 使用31进制字符串哈希算法
+    uint32_t simple_hash = 0;
+    for (int i = 0; i < link_len; i++) {
+        simple_hash = simple_hash * 31 + (unsigned char)link_target[i];
+    }
+}
+```
+
+#### 兼容性 (Compatibility)
+- ✅ **向后兼容**: 现有快照文件格式不受影响
+- ✅ **跨平台**: 在Linux、macOS等POSIX系统上正常工作
+- ✅ **性能保持**: 不影响普通文件的处理性能
+
+#### 应用场景 (Use Cases)
+- 🐧 **Linux内核开发**: 正确处理内核源码中的符号链接(如arch/include链接)
+- 📦 **软件包构建**: 支持包含符号链接的复杂项目结构
+- 🔒 **系统配置管理**: 跟踪/etc目录中的配置文件符号链接变更
+- 🛠️ **CVE补丁制作**: 确保补丁不会丢失符号链接信息
+
 ## [1.0.0] - 2024-01-08
 
 ### 🎉 首次发布

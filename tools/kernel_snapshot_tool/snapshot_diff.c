@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <unistd.h>
 
 // 实时状态检查功能 - 基于快照的实时目录对比
@@ -38,7 +39,7 @@ int git_snapshot_status(const char *snapshot_path, const char *dir_path,
     }
     
     if (config->verbose) {
-        printf("📖 已载入基线快照：%llu 个文件\n", baseline_index->count);
+        printf("📖 已载入基线快照：%"PRIu64" 个文件\n", baseline_index->count);
     }
     
     // 2. 实时扫描当前目录
@@ -144,9 +145,9 @@ int git_snapshot_status(const char *snapshot_path, const char *dir_path,
     }
     
     if (config->verbose) {
-        printf("📊 扫描完成：发现 %llu 个文件\n", total_files);
+        printf("📊 扫描完成：发现 %"PRIu64" 个文件\n", total_files);
         printf("🔍 成功添加到索引：%d 个文件\n", queue_items);
-        printf("🔍 当前索引文件数：%llu\n", current_index->count);
+        printf("🔍 当前索引文件数：%"PRIu64"\n", current_index->count);
     }
     
     worker_pool_destroy(pool);
@@ -405,6 +406,7 @@ void hex_to_binary(const char *hex, unsigned char *binary) {
 // 执行差异分析 - 高效O(n)算法
 int perform_diff_analysis(git_index_t *old_index, git_index_t *new_index,
                          const snapshot_config_t *config, snapshot_result_t *result) {
+    (void)config;  // 参数保留用于未来扩展
     
     printf("\n🔍 差异分析报告:\n");
     printf("================\n");
@@ -420,7 +422,7 @@ int perform_diff_analysis(git_index_t *old_index, git_index_t *new_index,
         old_index->entries[i].flags = 0;
     }
     
-    printf("🔄 正在分析 %llu 个旧文件和 %llu 个新文件...\n", 
+    printf("🔄 正在分析 %"PRIu64" 个旧文件和 %"PRIu64" 个新文件...\n", 
            old_index->count, new_index->count);
     
     // 使用双指针技术进行高效比较 O(n+m)
@@ -486,10 +488,10 @@ int perform_diff_analysis(git_index_t *old_index, git_index_t *new_index,
     result->processed_files = new_index->count;
     
     printf("\n📊 统计信息:\n");
-    printf("新增文件: %llu\n", added);
-    printf("修改文件: %llu\n", modified);
-    printf("删除文件: %llu\n", deleted);
-    printf("总变更: %llu\n", added + modified + deleted);
+    printf("新增文件: %"PRIu64"\n", added);
+    printf("修改文件: %"PRIu64"\n", modified);
+    printf("删除文件: %"PRIu64"\n", deleted);
+    printf("总变更: %"PRIu64"\n", added + modified + deleted);
     
     return 0;
 }

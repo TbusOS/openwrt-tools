@@ -6,6 +6,8 @@
 #include "snapshot_core.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
+#include <inttypes.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <time.h>
@@ -20,7 +22,7 @@ static int get_terminal_width() {
 }
 
 // 格式化文件大小
-static void format_size(uint64_t size, char *buffer, size_t buffer_size) {
+__attribute__((unused)) static void format_size(uint64_t size, char *buffer, size_t buffer_size) {
     const char *units[] = {"B", "KB", "MB", "GB", "TB"};
     int unit = 0;
     double size_f = (double)size;
@@ -31,7 +33,7 @@ static void format_size(uint64_t size, char *buffer, size_t buffer_size) {
     }
     
     if (unit == 0) {
-        snprintf(buffer, buffer_size, "%llu %s", size, units[unit]);
+        snprintf(buffer, buffer_size, "%"PRIu64" %s", size, units[unit]);
     } else {
         snprintf(buffer, buffer_size, "%.1f %s", size_f, units[unit]);
     }
@@ -76,14 +78,14 @@ void show_progress_bar(uint64_t current, uint64_t total, const char *current_fil
             printf("░");
         }
     }
-    printf("] %6.1f%% (%llu/%llu)", percentage, current, total);
+    printf("] %6.1f%% (%"PRIu64"/%"PRIu64")", percentage, current, total);
     
     // 如果有当前文件信息，显示文件名（截断长文件名）
     if (current_file && strlen(current_file) > 0) {
         int remaining = term_width - 60;  // 为进度条和百分比留出空间
         if (remaining > 10) {
             char short_name[256];
-            if (strlen(current_file) > remaining - 3) {
+            if (strlen(current_file) > (size_t)(remaining - 3)) {
                 snprintf(short_name, sizeof(short_name), "...%s", 
                         current_file + strlen(current_file) - (remaining - 6));
             } else {
@@ -103,11 +105,11 @@ void show_create_summary(uint64_t total_files, uint64_t processed_files,
     printf("\n");
     printf("✅ 快照创建完成!\n");
     printf("📊 统计摘要:\n");
-    printf("   📁 扫描文件: %llu\n", total_files);
-    printf("   ✅ 成功处理: %llu\n", processed_files);
+    printf("   📁 扫描文件: %"PRIu64"\n", total_files);
+    printf("   ✅ 成功处理: %"PRIu64"\n", processed_files);
     
     if (failed_files > 0) {
-        printf("   ❌ 失败文件: %llu\n", failed_files);
+        printf("   ❌ 失败文件: %"PRIu64"\n", failed_files);
     }
     
     if (total_files > 0) {
@@ -130,14 +132,14 @@ void show_create_summary(uint64_t total_files, uint64_t processed_files,
 
 // 显示扫描阶段进度
 void show_scan_progress(uint64_t scanned_dirs, const char *current_dir) {
-    printf("\r🔍 扫描目录: %llu 个目录", scanned_dirs);
+    printf("\r🔍 扫描目录: %"PRIu64" 个目录", scanned_dirs);
     if (current_dir && strlen(current_dir) > 0) {
         int term_width = get_terminal_width();
         int remaining = term_width - 30;  // 为前缀信息留出空间
         
         if (remaining > 10) {
             char short_dir[256];
-            if (strlen(current_dir) > remaining - 3) {
+            if (strlen(current_dir) > (size_t)(remaining - 3)) {
                 snprintf(short_dir, sizeof(short_dir), "...%s", 
                         current_dir + strlen(current_dir) - (remaining - 6));
             } else {

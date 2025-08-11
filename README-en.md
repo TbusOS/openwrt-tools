@@ -22,7 +22,7 @@ A **hybrid architecture high-performance patch management platform** designed sp
 openwrt-tools/
 ├── tools/                                    # 🔧 Core Tools
 │   ├── quilt_patch_manager_final.sh         # v8.0.0 Hybrid Architecture Main Tool
-│   ├── kernel_snapshot_tool/                # 🚀 Kernel Snapshot Tool v1.0.0 (Major Upgrade)
+│   ├── kernel_snapshot_tool/                # 🚀 Kernel Snapshot Tool v1.1.0 (Symbolic Link Support Upgrade)
 │   │   ├── kernel_snapshot                  # Main Executable
 │   │   ├── main.c, snapshot_core.c         # Core Source Code
 │   │   ├── index_cache_simple.c            # Smart Index Caching
@@ -47,12 +47,12 @@ openwrt-tools/
 
 ## 🎯 Core Features
 
-### 🥇 Independent Kernel Snapshot Tool v1.0.0 (Recommended)
+### 🥇 Independent Kernel Snapshot Tool v1.1.0 (Recommended) 🔗New Symbolic Link Support
 ```bash
 # Git-style workflow - using global configuration file (recommended)
 cd tools/kernel_snapshot_tool
-./kernel_snapshot create                    # Create baseline snapshot
-./kernel_snapshot status                    # Check change status
+./kernel_snapshot create                    # Create baseline snapshot (supports symbolic links)
+./kernel_snapshot status                    # Check change status (includes symbolic link changes)
 
 # Manual directory specification
 ./kernel_snapshot create /path/to/kernel linux-6.6
@@ -60,6 +60,11 @@ cd tools/kernel_snapshot_tool
 
 # Clean snapshot data
 ./kernel_snapshot clean
+
+# New Features:
+# ✨ Complete symbolic link support - Smart handling like Git
+# 🔍 Intelligent link detection - Precise identification and recursive processing of linked directories
+# ⚡ Performance optimization - Lightweight hashing for symbolic links, avoiding SHA256 computation overhead
 ```
 
 ### 🥈 Git-style Snapshot System (v8.0 Integrated Feature)

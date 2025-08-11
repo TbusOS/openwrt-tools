@@ -7,7 +7,7 @@ STRIP = strip
 
 # 项目信息
 PROGRAM = kernel_snapshot
-VERSION = 1.0
+VERSION = 1.1
 TARGET_DIR = /usr/local/bin
 
 # 源文件
@@ -22,6 +22,7 @@ OBJS = $(SRCS:.c=.o)
 # 编译标志
 CFLAGS = -std=c99 -Wall -Wextra -O3 -march=native \
          -flto -ffast-math -funroll-loops -finline-functions \
+         -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L \
          -DVERSION=\"$(VERSION)\"
 
 LDFLAGS = -lpthread
@@ -29,6 +30,7 @@ LDFLAGS = -lpthread
 # 调试标志
 DEBUG_CFLAGS = -std=c99 -Wall -Wextra -g -O0 -DDEBUG \
                -fsanitize=address -fno-omit-frame-pointer \
+               -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L \
                -DVERSION=\"$(VERSION)-debug\"
 
 DEBUG_LDFLAGS = -lpthread -fsanitize=address
@@ -39,7 +41,7 @@ all: $(PROGRAM)
 # 主程序
 $(PROGRAM): $(OBJS)
 	@echo "🔗 链接 $(PROGRAM)..."
-	$(CC) $(LDFLAGS) -o $@ $(OBJS)
+	$(CC) -o $@ $(OBJS) $(LDFLAGS)
 	$(STRIP) $@
 	@echo "✅ 编译完成: $(PROGRAM)"
 
