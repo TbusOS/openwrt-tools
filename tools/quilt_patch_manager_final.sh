@@ -1,5 +1,5 @@
 #!/bin/bash
-# 版本: v8.0.0 (Git风格快照系统重大版本 - 混合架构与高性能)
+# 版本: v8.1.0 (增强配置集成 - 全局配置文件智能读取与错误处理优化)
 
 # --- 全局变量与初始化 ---
 # 获取脚本所在目录的绝对路径，确保路径引用的健壮性
@@ -27,7 +27,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
-VERSION="8.0.0"
+VERSION="8.1.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
@@ -176,6 +176,20 @@ find_kernel_source() {
         return 0
     fi
     
+    # 尝试从全局配置文件读取默认工作目录
+    local config_file="$SCRIPT_DIR/kernel_snapshot_tool/.kernel_snapshot.conf"
+    if [[ -f "$config_file" ]]; then
+        local configured_dir
+        configured_dir=$(grep "^default_workspace_dir=" "$config_file" | cut -d'=' -f2)
+        
+        if [[ -n "$configured_dir" && -d "$configured_dir" ]]; then
+            if [[ -f "$configured_dir/Makefile" ]] && grep -q "KERNELRELEASE" "$configured_dir/Makefile" 2>/dev/null; then
+                echo "$configured_dir"
+                return 0
+            fi
+        fi
+    fi
+    
     local kernel_dir
     # 修正查找路径，移除不正确的 "target-*" 部分
     kernel_dir=$(find "$ORIGINAL_PWD" -path "*/build_dir/linux-*/linux-*" -type d -print -quit 2>/dev/null)
@@ -194,6 +208,62 @@ find_kernel_source() {
     printf "    ${GREEN}make target/linux/prepare V=s${NC} (仅准备内核源码，速度较快)\n" >&2
     printf "    ${GREEN}make V=s${NC} (执行完整编译，耗时较长)\n\n" >&2
     return 1
+}
+
+# 增强版内核目录查找函数 (用于需要quilt操作的命令)
+find_kernel_source_enhanced() {
+    local operation_name="$1"  # 操作名称，用于更好的错误提示
+    
+    local kernel_source_dir
+    kernel_source_dir=$(find_kernel_source)
+    
+    # 如果find_kernel_source失败，尝试从全局配置文件读取目录
+    if [[ $? -ne 0 || -z "$kernel_source_dir" ]]; then
+        log_warning "标准方法未找到内核源码目录，尝试使用全局配置文件..."
+        
+        local config_file="$SCRIPT_DIR/kernel_snapshot_tool/.kernel_snapshot.conf"
+        if [[ -f "$config_file" ]]; then
+            local configured_dir
+            configured_dir=$(grep "^default_workspace_dir=" "$config_file" | cut -d'=' -f2)
+            
+            if [[ -n "$configured_dir" && -d "$configured_dir" ]]; then
+                log_info "发现全局配置中的工作目录: $configured_dir"
+                
+                # 检查是否是有效的内核目录（有Makefile且包含KERNELRELEASE）
+                if [[ -f "$configured_dir/Makefile" ]] && grep -q "KERNELRELEASE" "$configured_dir/Makefile" 2>/dev/null; then
+                    kernel_source_dir="$configured_dir"
+                    log_success "✅ 使用全局配置中的内核目录: $kernel_source_dir"
+                else
+                    log_error "❌ 全局配置中的目录不是有效的内核源码目录"
+                    log_error "   目录: $configured_dir"
+                    log_error "   原因: 缺少Makefile或KERNELRELEASE标识"
+                    log_info "💡 请检查全局配置文件: $config_file"
+                    return 1
+                fi
+            else
+                log_error "❌ 全局配置文件中的default_workspace_dir无效或不存在"
+                log_info "💡 配置文件: $config_file"
+                [[ -n "$configured_dir" ]] && log_info "💡 配置的目录: $configured_dir"
+                return 1
+            fi
+        else
+            log_error "❌ 未找到全局配置文件: $config_file"
+            log_info "💡 请确保kernel_snapshot_tool配置文件存在"
+            return 1
+        fi
+    fi
+    
+    if [[ -z "$kernel_source_dir" ]]; then
+        log_error "❌ 无法找到任何有效的内核源码目录用于操作: ${operation_name:-quilt操作}"
+        log_info "💡 建议解决方案:"
+        log_info "   1. 确保您位于OpenWrt项目根目录"
+        log_info "   2. 运行 'make target/linux/prepare V=s' 准备内核源码"
+        log_info "   3. 检查全局配置文件: $SCRIPT_DIR/kernel_snapshot_tool/.kernel_snapshot.conf"
+        return 1
+    fi
+    
+    echo "$kernel_source_dir"
+    return 0
 }
 
 # 查找 OpenWrt 的内核补丁目录 (用于文件冲突检查)
@@ -732,20 +802,20 @@ create_patch() {
     [[ ! "$patch_name" =~ \.patch$ ]] && patch_name="${patch_name}.patch"
     
     # 自动保存原始 quilt 状态（首次调用时）
-    save_original_quilt_state
+    save_original_quilt_state || return 1
     
     log_info "准备创建新补丁: $patch_name"
 
     local kernel_source_dir
-    kernel_source_dir=$(find_kernel_source) || { log_error "未找到内核源码目录"; return 1; }
+    kernel_source_dir=$(find_kernel_source_enhanced "创建补丁") || return 1
 
     (
         cd "$kernel_source_dir" || exit 1
-        log_info "正在创建补丁..."
-    if quilt new "$patch_name"; then
+        log_info "正在在目录 '$kernel_source_dir' 中创建补丁..."
+        if quilt new "$patch_name"; then
             log_success "补丁 '$patch_name' 创建成功"
-    else
-        log_error "补丁创建失败"
+        else
+            log_error "补丁创建失败"
             exit 1
         fi
     )
@@ -768,7 +838,7 @@ add_files() {
     log_info "准备将文件添加到 quilt 补丁..."
     
     local kernel_source_dir
-    kernel_source_dir=$(find_kernel_source) || { log_error "未找到内核源码目录"; return 1; }
+    kernel_source_dir=$(find_kernel_source_enhanced "添加文件到补丁") || return 1
 
     (
         cd "$kernel_source_dir" || exit 1
@@ -799,7 +869,7 @@ quilt_refresh() {
     log_info "🔄 [标准] 刷新补丁..."
     
     local kernel_source_dir
-    kernel_source_dir=$(find_kernel_source) || { log_error "未找到内核源码目录"; return 1; }
+    kernel_source_dir=$(find_kernel_source_enhanced "刷新补丁") || return 1
     
     (
         cd "$kernel_source_dir" || exit 1
@@ -828,7 +898,7 @@ quilt_refresh_with_header() {
     log_info "🔄 [核心] 刷新补丁并尝试从 '$identifier' 注入元数据..."
 
     local kernel_source_dir
-    kernel_source_dir=$(find_kernel_source) || { log_error "未找到内核源码目录"; return 1; }
+    kernel_source_dir=$(find_kernel_source_enhanced "刷新补丁并注入元数据") || return 1
     
     (
         cd "$kernel_source_dir" || exit 1
@@ -1267,7 +1337,7 @@ snapshot_clean() {
 # 强制重置 quilt 状态到原始状态 (无需用户确认，用于 distclean)
 force_reset_env() {
     local kernel_source_dir
-    kernel_source_dir=$(find_kernel_source) || { log_warning "未找到内核源码目录，跳过 quilt 重置"; return 0; }
+    kernel_source_dir=$(find_kernel_source_enhanced "重置quilt环境") || { log_error "未找到内核源码目录"; return 1; }
     
     local backup_file="$MAIN_WORK_DIR/original_quilt_state.backup"
     local backup_dir="$MAIN_WORK_DIR/original_patches_backup"
@@ -1400,7 +1470,7 @@ clean_work_dir() {
 # 保存内核的原始 quilt 状态
 save_original_quilt_state() {
     local kernel_source_dir
-    kernel_source_dir=$(find_kernel_source) || { log_error "未找到内核源码目录"; return 1; }
+    kernel_source_dir=$(find_kernel_source_enhanced "保存quilt状态") || { log_error "未找到内核源码目录"; return 1; }
     
     local backup_file="$MAIN_WORK_DIR/original_quilt_state.backup"
     local backup_dir="$MAIN_WORK_DIR/original_patches_backup"
@@ -1474,7 +1544,7 @@ reset_env() {
     [[ ! "$response" =~ ^[Yy]$ ]] && { log_info "用户取消操作"; return 0; }
     
     local kernel_source_dir
-    kernel_source_dir=$(find_kernel_source) || { log_error "未找到内核源码目录"; return 1; }
+    kernel_source_dir=$(find_kernel_source_enhanced "重置quilt环境") || { log_error "未找到内核源码目录"; return 1; }
     
     local backup_file="$MAIN_WORK_DIR/original_quilt_state.backup"
     local backup_dir="$MAIN_WORK_DIR/original_patches_backup"
@@ -1523,7 +1593,7 @@ reset_env() {
 run_quilt_command() {
     local quilt_cmd="$1"; shift
     local kernel_source_dir
-    kernel_source_dir=$(find_kernel_source) || { log_error "未找到内核源码目录"; return 1; }
+    kernel_source_dir=$(find_kernel_source_enhanced "quilt $quilt_cmd") || { log_error "未找到内核源码目录"; return 1; }
     ( cd "$kernel_source_dir" || exit 1; quilt "$quilt_cmd" "$@"; )
 }
 
