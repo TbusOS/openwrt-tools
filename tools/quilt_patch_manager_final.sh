@@ -964,12 +964,63 @@ snapshot_create() {
     
     log_info "📸 正在为目录 '$target_dir' 创建源码树快照..."
     
-    # 保留旧系统的文件总数计算和显示功能
+    # 读取 kernel_snapshot_tool 的配置文件获取实际工作目录
+    local config_file="$SCRIPT_DIR/kernel_snapshot_tool/.kernel_snapshot.conf"
+    local actual_work_dir="$target_dir"
+    
+    if [[ -f "$config_file" ]]; then
+        # 解析配置文件中的 default_workspace_dir
+        local configured_dir
+        configured_dir=$(grep "^default_workspace_dir=" "$config_file" | cut -d'=' -f2)
+        
+        if [[ -n "$configured_dir" && -d "$configured_dir" ]]; then
+            actual_work_dir="$configured_dir"
+            log_info "使用配置文件中的工作目录: $actual_work_dir"
+        fi
+    fi
+    
+    # 使用实际工作目录进行文件统计
     log_info "正在计算文件总数..."
     local total_files
-    total_files=$(find "$target_dir" -type f -not -path "./$MAIN_WORK_DIR/*" | wc -l | tr -d ' ')
+    
+    # 解析配置文件中的忽略模式
+    local ignore_patterns=""
+    if [[ -f "$config_file" ]]; then
+        ignore_patterns=$(grep "^ignore_patterns=" "$config_file" | cut -d'=' -f2)
+    fi
+    
+    # 构建find命令的排除参数
+    local find_excludes="-not -path '*/.snapshot/*' -not -path './$MAIN_WORK_DIR/*'"
+    
+    if [[ -n "$ignore_patterns" ]]; then
+        log_info "应用忽略模式: $ignore_patterns"
+        # 将逗号分隔的模式转换为find命令的排除参数
+        IFS=',' read -ra patterns <<< "$ignore_patterns"
+        for pattern in "${patterns[@]}"; do
+            # 去除前后空格
+            pattern=$(echo "$pattern" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [[ -n "$pattern" ]]; then
+                if [[ "$pattern" == *.* ]]; then
+                    # 处理文件扩展名模式 (如 *.o, *.so)
+                    find_excludes="$find_excludes -not -name '$pattern'"
+                elif [[ "$pattern" == *\** ]]; then
+                    # 处理通配符模式 (如 temp*)
+                    find_excludes="$find_excludes -not -name '$pattern'"
+                else
+                    # 处理目录名或精确匹配 (如 .git, .svn)
+                    find_excludes="$find_excludes -not -path '*/$pattern' -not -path '*/$pattern/*' -not -name '$pattern'"
+                fi
+            fi
+        done
+    fi
+    
+    # 执行find命令统计文件数量
+    local find_cmd="find \"$actual_work_dir\" -type f $find_excludes"
+    log_info "执行统计命令: $find_cmd"
+    total_files=$(eval "$find_cmd" | wc -l | tr -d ' ')
+    
     if [[ $total_files -eq 0 ]]; then
-        log_warning "在 '$target_dir' 中没有找到任何文件。"
+        log_warning "在 '$actual_work_dir' 中没有找到任何文件。"
         return 1
     fi
     log_info "共计 $total_files 个文件需要处理。"

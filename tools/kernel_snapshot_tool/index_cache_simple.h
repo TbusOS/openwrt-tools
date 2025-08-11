@@ -31,7 +31,8 @@ typedef struct {
 } simple_index_t;
 
 // 前向声明 - 避免与 snapshot_core.h 冲突
-typedef struct change_list change_list_t;
+// 移除typedef重复定义，使用前向声明
+struct change_list;
 
 // 函数声明
 simple_index_t* create_simple_index_from_snapshot(const char *snapshot_path);

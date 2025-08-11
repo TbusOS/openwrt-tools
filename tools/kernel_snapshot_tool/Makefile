@@ -1,9 +1,21 @@
 # 内核快照工具 Makefile
 # 专为OpenWrt内核开发优化的高性能快照系统
 
-# 编译器和工具
+# 编译器和工具（跨平台兼容）
 CC = gcc
 STRIP = strip
+
+# 检测操作系统
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+    # macOS specific settings
+    MACOS = 1
+    # macOS上可能需要不同的strip参数
+    STRIP = strip
+else
+    # Linux and other Unix systems
+    MACOS = 0
+endif
 
 # 项目信息
 PROGRAM = kernel_snapshot
@@ -19,13 +31,21 @@ SRCS = main.c \
 
 OBJS = $(SRCS:.c=.o)
 
-# 编译标志
-CFLAGS = -std=c99 -Wall -Wextra -O3 -march=native \
-         -flto -ffast-math -funroll-loops -finline-functions \
-         -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L \
-         -DVERSION=\"$(VERSION)\"
+# 编译标志（跨平台兼容）
+BASE_CFLAGS = -std=c99 -Wall -Wextra -O3 \
+              -flto -ffast-math -funroll-loops -finline-functions \
+              -DVERSION=\"$(VERSION)\"
 
-LDFLAGS = -lpthread
+ifeq ($(MACOS),1)
+    # macOS specific flags
+    CFLAGS = $(BASE_CFLAGS) -D_POSIX_C_SOURCE=200809L
+    # macOS上-march=native在某些情况下可能有问题，使用更通用的优化
+    LDFLAGS = -lpthread
+else
+    # Linux and other Unix systems
+    CFLAGS = $(BASE_CFLAGS) -march=native -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
+    LDFLAGS = -lpthread
+endif
 
 # 调试标志
 DEBUG_CFLAGS = -std=c99 -Wall -Wextra -g -O0 -DDEBUG \

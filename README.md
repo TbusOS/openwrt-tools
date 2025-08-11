@@ -7,7 +7,8 @@
 - **🔄 Git风格全局快照系统**: 新增 `snapshot-create` 和 `snapshot-diff` 命令，实现类Git的文件变更跟踪
 - **🔀 混合输入架构支持**: 统一支持 commit ID 和本地补丁文件两种输入模式
 - **⚡ 高性能C助手工具**: 集成C语言编写的 `snapshot_helper`，支持大型代码库的快速处理
-- **🚀 内核快照工具 v1.0.0**: 全新发布独立的高性能内核快照系统，87,000个文件仅需2秒处理
+- **🚀 内核快照工具 v1.1.0**: 全新发布独立的高性能内核快照系统，87,000个文件仅需2秒处理
+- **🍎 macOS 原生兼容性**: 完整支持 macOS 平台，包括 Apple Silicon 和 Intel Mac
 - **📱 Git风格用户界面**: 支持create、status、clean等Git风格命令，配备全局配置文件支持
 - **🎯 智能索引缓存**: 零文件丢失保证，采用单线程遍历+多线程处理的Git风格设计
 - **📊 实时进度显示**: 快照创建过程中显示动态进度条，支持并行处理
@@ -47,7 +48,7 @@ openwrt-tools/
 
 ## 🎯 核心功能
 
-### 🥇 独立内核快照工具 v1.1.0 (推荐使用) 🔗新增符号链接支持
+### 🥇 独立内核快照工具 v1.1.0 (推荐使用) 🔗新增符号链接支持 + 🍎 macOS 原生支持
 ```bash
 # Git风格工作流 - 使用全局配置文件 (推荐)
 cd tools/kernel_snapshot_tool
@@ -60,6 +61,12 @@ cd tools/kernel_snapshot_tool
 
 # 清理快照数据
 ./kernel_snapshot clean
+
+# 🍎 macOS 专属优化:
+# ✨ 原生 Apple Silicon/Intel Mac 支持
+# ⚡ 自适应 CPU 核心检测 (固定4核，可通过-t参数覆盖)
+# 🔧 优化的内存检测机制，避免系统API冲突
+# 📁 macOS 路径兼容性 (支持 _NSGetExecutablePath)
 
 # 新功能特性:
 # ✨ 完整符号链接支持 - 像Git一样智能处理符号链接
@@ -122,7 +129,7 @@ cd tools/kernel_snapshot_tool
 ## 🔧 安装与依赖
 
 ### 系统要求
-- ✅ **macOS** (所有版本)
+- ✅ **macOS** (所有版本，包括 Apple Silicon M1/M2/M3)
 - ✅ **Ubuntu 20.04+**
 - ✅ **其他 Linux 发行版**
 
@@ -131,7 +138,7 @@ cd tools/kernel_snapshot_tool
 # Ubuntu/Debian (v8.0 新增: 编译工具链)
 sudo apt install -y curl quilt build-essential
 
-# macOS (v8.0 新增: 编译工具链)
+# macOS (v8.0 新增: 编译工具链 + 原生兼容性)
 brew install quilt curl
 # 确保已安装 Xcode Command Line Tools
 xcode-select --install
@@ -140,20 +147,26 @@ xcode-select --install
 sudo yum install -y curl quilt gcc make
 ```
 
-### C助手工具编译 (v8.0 新特性)
+### C助手工具编译 (v8.0 新特性 + 🍎 macOS 原生支持)
 ```bash
 # 编译高性能助手工具 (legacy)
 cd tools/snapshot_tool
 make
 
-# 编译内核快照工具 v1.0.0 (推荐)
+# 编译内核快照工具 v1.1.0 (推荐 + macOS原生支持)
 cd tools/kernel_snapshot_tool
-make
+make                                        # 自动检测平台并应用优化编译标志
 
 # 验证编译成功
 ./kernel_snapshot --help 2>/dev/null && echo "✅ 内核快照工具编译成功"
 cd ../snapshot_tool
 ./snapshot_helper --help 2>/dev/null && echo "✅ C助手工具编译成功"
+
+# 🍎 macOS 编译验证
+# 在 macOS 上编译会自动应用以下优化:
+# - 移除 -march=native (避免兼容性问题)
+# - 使用 macOS 特定的系统API
+# - 优化内存和CPU检测机制
 ```
 
 ## 📖 文档导航

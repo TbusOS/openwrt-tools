@@ -18,6 +18,20 @@
 #include <time.h>
 #include <sys/stat.h>
 
+// 跨平台获取CPU核心数函数 - 避免复杂的系统头文件包含
+static int get_cpu_count(void) {
+#ifdef __APPLE__
+    // macOS: 使用更简单的方法，避免头文件冲突
+    // 简化版本，使用固定的合理默认值
+    // 在实际使用中，大多数macOS系统都是多核的
+    return 4; // 合理的默认值，用户可通过-t参数覆盖
+#else
+    // Linux 和其他 POSIX 系统
+    long cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
+    return (cpu_count > 0) ? (int)cpu_count : 2; // 默认值
+#endif
+}
+
 // Git风格的文件遍历（单线程，确保不丢失）
 int scan_directory_recursive(const char *dir_path, worker_pool_t *pool, 
                                    const snapshot_config_t *config, uint64_t *total_files) {
@@ -116,10 +130,11 @@ int scan_directory_recursive(const char *dir_path, worker_pool_t *pool,
                 usleep(1000);  // 1ms
             }
             
-                    if ((*total_files % 1000) == 0) { // 每1000个文件显示一次进度
-            printf("\r🔍 已扫描: %"PRIu64" 个文件", *total_files);
-                fflush(stdout);
-            }
+            // 注释掉中间进度显示，避免数字混淆
+            // if ((*total_files % 1000) == 0) { // 每1000个文件显示一次进度
+            //     printf("\r🔍 已扫描: %"PRIu64" 个文件", *total_files);
+            //     fflush(stdout);
+            // }
         }
         // 忽略符号链接和其他特殊文件类型
     }
@@ -1164,7 +1179,7 @@ int git_snapshot_create(const char *dir_path, const char *snapshot_path,
     }
     
     // 创建工作线程池（支持流式写出）
-    int thread_count = config->thread_count > 0 ? config->thread_count : sysconf(_SC_NPROCESSORS_ONLN);
+    int thread_count = config->thread_count > 0 ? config->thread_count : get_cpu_count();
     worker_pool_t *pool = worker_pool_create(thread_count, collector, config, snapshot_path, dir_path);
     if (!pool) {
         result_collector_destroy(collector);
@@ -1628,21 +1643,45 @@ int save_global_config(const char *config_path, const workspace_config_t *config
 // 系统信息显示功能
 // ================================
 
+// macOS: 使用Mach API获取系统信息，避免sysctl头文件类型冲突
 #ifdef __APPLE__
-#include <sys/sysctl.h>
+#include <mach/mach.h>
+#include <mach/host_info.h>
+#include <mach/mach_host.h>
+#include <mach/vm_statistics.h>
+// 只包含必要的基础类型定义
+#include <sys/types.h>
+// 声明需要的sysctl函数，避免包含完整头文件
+extern int sysctlbyname(const char *, void *, size_t *, const void *, size_t);
 #endif
 
 // 获取可用内存（MB）
 static long get_available_memory_mb() {
 #ifdef __APPLE__
-    // macOS 系统
-    int mib[2] = {CTL_HW, HW_MEMSIZE};
-    uint64_t physical_memory;
-    size_t length = sizeof(physical_memory);
+    // macOS: 使用mach API获取可用内存，避免sysctl类型问题
+    mach_port_t host = mach_host_self();
+    vm_statistics64_data_t vm_stat;
+    natural_t host_size = sizeof(vm_statistics64_data_t) / sizeof(natural_t);
     
-    if (sysctl(mib, 2, &physical_memory, &length, NULL, 0) == 0) {
-        return physical_memory / (1024 * 1024);  // 转换为MB
+    if (host_statistics64(host, HOST_VM_INFO64, (host_info64_t)&vm_stat, &host_size) == KERN_SUCCESS) {
+        // 获取页面大小
+        vm_size_t page_size;
+        if (host_page_size(host, &page_size) == KERN_SUCCESS) {
+            // 计算可用内存 (空闲页面 + 可回收页面)
+            uint64_t available_memory = (uint64_t)(vm_stat.free_count + vm_stat.purgeable_count) * page_size;
+            return (long)(available_memory / (1024 * 1024)); // 转换为MB
+        }
     }
+    
+    // 如果上面的方法失败，尝试获取总物理内存作为参考
+    uint64_t total_memory = 0;
+    size_t size = sizeof(total_memory);
+    if (sysctlbyname("hw.memsize", &total_memory, &size, NULL, 0) == 0) {
+        // 估算可用内存为总内存的70%（保守估计）
+        return (long)(total_memory * 0.7 / (1024 * 1024));
+    }
+    
+    return 4096; // 最后的默认值 4GB
 #elif __linux__
     // Linux 系统
     FILE *fp = fopen("/proc/meminfo", "r");
@@ -1680,10 +1719,12 @@ static long get_available_memory_mb() {
 // 获取CPU信息
 static void get_cpu_info(char *cpu_info, size_t size) {
 #ifdef __APPLE__
-    // macOS 系统
-    size_t cpu_size = size;
-    if (sysctlbyname("machdep.cpu.brand_string", cpu_info, &cpu_size, NULL, 0) != 0) {
-        strncpy(cpu_info, "Unknown CPU", size - 1);
+    // macOS: 动态获取真实的CPU信息
+    size_t cpu_size = size - 1;
+    if (sysctlbyname("machdep.cpu.brand_string", cpu_info, &cpu_size, NULL, 0) == 0) {
+        cpu_info[size - 1] = '\0'; // 确保字符串结束
+    } else {
+        strncpy(cpu_info, "Apple Silicon/Intel CPU", size - 1);
         cpu_info[size - 1] = '\0';
     }
 #elif __linux__

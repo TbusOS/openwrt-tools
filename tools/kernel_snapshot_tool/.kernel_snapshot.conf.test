@@ -1,0 +1,11 @@
+# kernel_snapshot 全局配置文件
+# 此文件用于设置默认的工作目录和忽略模式
+
+# 默认工作目录（绝对路径）- 故意留空测试
+default_workspace_dir=
+
+# 默认项目名称
+default_project_name=snapshot-project
+
+# 忽略文件模式（用逗号分隔）
+ignore_patterns=.git,.svn,*.tmp,*.log,*.bak,*.o,*.so,*.a,*.obj,*.exe,*.dll

@@ -12,6 +12,20 @@
 #include <unistd.h>
 #include <inttypes.h>
 
+// 跨平台获取CPU核心数函数 - 避免复杂的系统头文件包含
+static int get_cpu_count(void) {
+#ifdef __APPLE__
+    // macOS: 使用更简单的方法，避免头文件冲突
+    // 简化版本，使用固定的合理默认值
+    // 在实际使用中，大多数macOS系统都是多核的
+    return 4; // 合理的默认值，用户可通过-t参数覆盖
+#else
+    // Linux 和其他 POSIX 系统
+    long cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
+    return (cpu_count > 0) ? (int)cpu_count : 2; // 默认值
+#endif
+}
+
 static void print_usage(const char *program_name) {
     printf("Git风格快照工具 - 零文件丢失设计\n\n");
     printf("🎯 Git风格用法 (推荐):\n");
@@ -102,11 +116,57 @@ static int cmd_create(int argc, char *argv[], const snapshot_config_t *config) {
     workspace_config_t global_config = {0};
     char global_config_path[MAX_PATH_LEN];
     
-    // 获取工具所在目录 - 通过 /proc/self/exe 获取准确路径
+    // 获取工具所在目录 - 跨平台方法
     char tool_dir[MAX_PATH_LEN];
     char exe_path[MAX_PATH_LEN];
     
-    // 首先尝试通过 /proc/self/exe 获取实际可执行文件路径
+#ifdef __APPLE__
+    // macOS: 使用_NSGetExecutablePath获取可执行文件路径
+    uint32_t size = sizeof(exe_path);
+    extern int _NSGetExecutablePath(char* buf, uint32_t* bufsize);
+    if (_NSGetExecutablePath(exe_path, &size) == 0) {
+        // 解析真实路径
+        char real_path[MAX_PATH_LEN];
+        if (realpath(exe_path, real_path) != NULL) {
+            char *tool_dir_end = strrchr(real_path, '/');
+            if (tool_dir_end) {
+                *tool_dir_end = '\0';
+                strncpy(tool_dir, real_path, MAX_PATH_LEN - 1);
+                tool_dir[MAX_PATH_LEN - 1] = '\0';
+            } else {
+                strncpy(tool_dir, ".", MAX_PATH_LEN - 1);
+                tool_dir[MAX_PATH_LEN - 1] = '\0';
+            }
+        } else {
+            // 如果realpath失败，直接使用exe_path的目录部分
+            char *tool_dir_end = strrchr(exe_path, '/');
+            if (tool_dir_end) {
+                *tool_dir_end = '\0';
+                strncpy(tool_dir, exe_path, MAX_PATH_LEN - 1);
+                tool_dir[MAX_PATH_LEN - 1] = '\0';
+            } else {
+                strncpy(tool_dir, ".", MAX_PATH_LEN - 1);
+                tool_dir[MAX_PATH_LEN - 1] = '\0';
+            }
+        }
+    } else {
+        // _NSGetExecutablePath失败，使用argv[0]
+        char *argv0_copy = strdup(argv[0] ? argv[0] : "kernel_snapshot");
+        char *tool_dir_end = strrchr(argv0_copy, '/');
+        if (tool_dir_end) {
+            *tool_dir_end = '\0';
+            if (realpath(argv0_copy, tool_dir) == NULL) {
+                strncpy(tool_dir, argv0_copy, MAX_PATH_LEN - 1);
+                tool_dir[MAX_PATH_LEN - 1] = '\0';
+            }
+        } else {
+            strncpy(tool_dir, ".", MAX_PATH_LEN - 1);
+            tool_dir[MAX_PATH_LEN - 1] = '\0';
+        }
+        free(argv0_copy);
+    }
+#else
+    // Linux: 通过 /proc/self/exe 获取实际可执行文件路径
     ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
     if (len != -1) {
         exe_path[len] = '\0';
@@ -135,6 +195,7 @@ static int cmd_create(int argc, char *argv[], const snapshot_config_t *config) {
         }
         free(argv0_copy);
     }
+#endif
     
     // 只使用工具所在目录的配置文件，不回退到其他位置
     snprintf(global_config_path, sizeof(global_config_path), "%s/%s", tool_dir, GLOBAL_CONFIG_FILE);
@@ -152,24 +213,36 @@ static int cmd_create(int argc, char *argv[], const snapshot_config_t *config) {
         printf("📄 未找到全局配置文件: %s，使用默认设置\n", global_config_path);
     }
     
-    // 应用全局配置中的默认工作目录和项目名
-    if (has_global_config && strlen(global_config.workspace_dir) > 0) {
+    // 检查并应用全局配置中的默认工作目录和项目名
+    if (has_global_config) {
+        // 检查 default_workspace_dir 是否配置
+        if (strlen(global_config.workspace_dir) == 0) {
+            printf("❌ 错误: 全局配置文件中的 default_workspace_dir 为空\n");
+            printf("   请在配置文件 %s 中设置 default_workspace_dir\n", global_config_path);
+            return 1;
+        }
+        
         dir_path = global_config.workspace_dir;
         printf("🔧 使用全局配置的默认工作目录: %s\n", dir_path);
-    }
-    
-    if (has_global_config && strlen(global_config.project_name) > 0 && !project_name) {
-        project_name = global_config.project_name;
-        printf("🔧 使用全局配置的默认项目名: %s\n", project_name);
+        
+        if (strlen(global_config.project_name) > 0 && !project_name) {
+            project_name = global_config.project_name;
+            printf("🔧 使用全局配置的默认项目名: %s\n", project_name);
+        }
+    } else {
+        printf("❌ 错误: 未找到全局配置文件，无法获取 default_workspace_dir\n");
+        printf("   请确保配置文件 %s 存在并正确配置\n", global_config_path);
+        return 1;
     }
     
     // 命令行参数可以覆盖全局配置
     // 新的使用方式: ./kernel_snapshot create <target_dir> [project_name]
     if (argc == 0) {
-        // 无参数，如果没有全局配置，使用当前目录
+        // 无参数，如果没有全局配置，才使用当前目录
         if (!has_global_config || strlen(global_config.workspace_dir) == 0) {
             dir_path = ".";
         }
+        // 注意：如果有全局配置，dir_path已经在前面设置为global_config.workspace_dir
         
         // 如果没有项目名，从目录名提取
         if (!project_name) {
@@ -193,9 +266,13 @@ static int cmd_create(int argc, char *argv[], const snapshot_config_t *config) {
             char *basename = strrchr(argv[0], '/');
             project_name = basename ? basename + 1 : argv[0];
         } else {
-            // 参数作为项目名，使用当前目录
+            // 参数作为项目名
             project_name = argv[0];
-            dir_path = ".";
+            // 如果有全局配置，保持使用配置文件中的目录，否则使用当前目录
+            if (!has_global_config || strlen(global_config.workspace_dir) == 0) {
+                dir_path = ".";
+            }
+            // 注意：如果有全局配置，dir_path已经在前面设置为global_config.workspace_dir
         }
     } else if (argc == 2) {
         // 两个参数，检查是否为新格式: <target_dir> <project_name>
@@ -255,7 +332,7 @@ static int cmd_create(int argc, char *argv[], const snapshot_config_t *config) {
     }
     
     // 计算实际线程数并显示系统信息
-    int actual_thread_count = local_config.thread_count > 0 ? local_config.thread_count : sysconf(_SC_NPROCESSORS_ONLN);
+    int actual_thread_count = local_config.thread_count > 0 ? local_config.thread_count : get_cpu_count();
     show_system_info(actual_thread_count);
     
     if (local_config.show_progress) {
@@ -300,43 +377,7 @@ static int cmd_create(int argc, char *argv[], const snapshot_config_t *config) {
             }
         }
         
-        // 更新全局配置文件（如果命令行指定了新的目录）
-        if (argc > 0) {
-            // 检查是否需要更新全局配置
-            char abs_new_dir[MAX_PATH_LEN];
-            if (realpath(dir_path, abs_new_dir)) {
-                int should_update = 0;
-                
-                // 如果全局配置中没有工作目录，或者指定了不同的目录
-                if (!has_global_config || strlen(global_config.workspace_dir) == 0 ||
-                    strcmp(global_config.workspace_dir, abs_new_dir) != 0) {
-                    should_update = 1;
-                    strncpy(global_config.workspace_dir, abs_new_dir, MAX_PATH_LEN - 1);
-                    global_config.workspace_dir[MAX_PATH_LEN - 1] = '\0';
-                }
-                
-                // 更新项目名
-                if (project_name && (!has_global_config || strlen(global_config.project_name) == 0 ||
-                    strcmp(global_config.project_name, project_name) != 0)) {
-                    should_update = 1;
-                    strncpy(global_config.project_name, project_name, MAX_PATH_LEN - 1);
-                    global_config.project_name[MAX_PATH_LEN - 1] = '\0';
-                }
-                
-                if (should_update) {
-                    global_config.updated_time = time(NULL);
-                    if (!has_global_config) {
-                        global_config.created_time = global_config.updated_time;
-                    }
-                    
-                    if (save_global_config(global_config_path, &global_config) == 0) {
-                        printf("🔧 已更新全局配置文件: %s\n", global_config_path);
-                    } else {
-                        printf("⚠️  警告: 无法更新全局配置文件\n");
-                    }
-                }
-            }
-        }
+        // 全局配置文件为只读，不进行任何修改
         
         if (result.failed_files > 0) {
             printf("⚠️  警告: 有 %"PRIu64" 个文件处理失败\n", result.failed_files);
@@ -375,7 +416,7 @@ static int cmd_status(int argc, char *argv[], const snapshot_config_t *config) {
         }
         free(argv0_copy);
         
-        // 查找全局配置文件
+        // 只从工具目录查找全局配置文件，不回退到其他位置
         int has_global_config = 0;
         snprintf(global_config_path, sizeof(global_config_path), "%s/%s", tool_dir, GLOBAL_CONFIG_FILE);
         
@@ -388,19 +429,7 @@ static int cmd_status(int argc, char *argv[], const snapshot_config_t *config) {
                 has_global_config = 1;
             }
         } else {
-            snprintf(global_config_path, sizeof(global_config_path), "./%s", GLOBAL_CONFIG_FILE);
-            if (access(global_config_path, R_OK) == 0) {
-                FILE *fp = fopen(global_config_path, "r");
-                if (fp) {
-                    printf("📖 读取全局配置文件: %s\n", global_config_path);
-                    load_global_config(fp, &global_config);
-                    fclose(fp);
-                    has_global_config = 1;
-                }
-            } else {
-                // 如果前面的配置文件都不存在，使用工具目录作为默认保存位置
-                snprintf(global_config_path, sizeof(global_config_path), "%s/%s", tool_dir, GLOBAL_CONFIG_FILE);
-            }
+            printf("📄 未找到全局配置文件: %s，使用默认设置\n", global_config_path);
         }
         
         // 确定工作区目录
@@ -508,7 +537,7 @@ static int cmd_clean(int argc, char *argv[], const snapshot_config_t *config) {
     }
     free(argv0_copy);
     
-    // 只使用工具所在目录的配置文件，不回退到其他位置
+    // 只从工具目录查找全局配置文件，不回退到其他位置
     int has_global_config = 0;
     snprintf(global_config_path, sizeof(global_config_path), "%s/%s", tool_dir, GLOBAL_CONFIG_FILE);
     
@@ -664,7 +693,7 @@ static int get_changes_list(const snapshot_config_t *config, change_list_t *chan
     }
     free(argv0_copy);
     
-    // 只使用工具所在目录的配置文件，不回退到其他位置
+    // 只从工具目录查找全局配置文件，不回退到其他位置
     int has_global_config = 0;
     snprintf(global_config_path, sizeof(global_config_path), "%s/%s", tool_dir, GLOBAL_CONFIG_FILE);
     

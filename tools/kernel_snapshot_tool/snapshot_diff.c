@@ -10,6 +10,20 @@
 #include <inttypes.h>
 #include <unistd.h>
 
+// 跨平台获取CPU核心数函数 - 避免复杂的系统头文件包含
+static int get_cpu_count(void) {
+#ifdef __APPLE__
+    // macOS: 使用更简单的方法，避免头文件冲突
+    // 简化版本，使用固定的合理默认值
+    // 在实际使用中，大多数macOS系统都是多核的
+    return 4; // 合理的默认值，用户可通过-t参数覆盖
+#else
+    // Linux 和其他 POSIX 系统
+    long cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
+    return (cpu_count > 0) ? (int)cpu_count : 2; // 默认值
+#endif
+}
+
 // 实时状态检查功能 - 基于快照的实时目录对比
 int git_snapshot_status(const char *snapshot_path, const char *dir_path,
                        const snapshot_config_t *config, snapshot_result_t *result) {
@@ -61,7 +75,7 @@ int git_snapshot_status(const char *snapshot_path, const char *dir_path,
     }
     
     // 使用简化的工作线程池进行实时扫描（不写文件）
-    int thread_count = config->thread_count > 0 ? config->thread_count : sysconf(_SC_NPROCESSORS_ONLN);
+    int thread_count = config->thread_count > 0 ? config->thread_count : get_cpu_count();
     worker_pool_t *pool = worker_pool_create(thread_count, collector, config, NULL, NULL);  // 不创建快照文件
     if (!pool) {
         result_collector_destroy(collector);
