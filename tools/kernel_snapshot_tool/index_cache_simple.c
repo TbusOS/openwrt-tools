@@ -679,20 +679,13 @@ void simple_scan_directory_with_list(const char *base_path, const char *current_
             continue;
         }
         
-        // 处理符号链接：像git一样记录符号链接本身，并递归处理目标
+        // 处理符号链接：像git一样只检查符号链接本身，不递归处理目标
         if (S_ISLNK(st.st_mode)) {
-            // 检查符号链接本身
+            // 只检查符号链接本身
             simple_check_file_with_list(base_path, full_path, &st, index, changes, unchanged, hash_calculations);
             
-            // 检查符号链接指向的目标
-            struct stat target_st;
-            if (stat(full_path, &target_st) == 0) {
-                // 如果指向目录，递归处理目录内容
-                if (S_ISDIR(target_st.st_mode)) {
-                    simple_scan_directory_with_list(base_path, full_path, index, changes, unchanged, hash_calculations, ignore_patterns);
-                }
-                // 如果指向文件，会在后续的遍历中被发现和处理
-            }
+            // Git策略：只检查符号链接本身，不通过符号链接路径处理目标内容
+            // 目标文件/目录会在真实路径遍历时被检查，避免重复计算
             continue; // 符号链接已处理完毕，继续下一个
         }
         

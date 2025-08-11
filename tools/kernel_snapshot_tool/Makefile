@@ -7,7 +7,7 @@ STRIP = strip
 
 # 项目信息
 PROGRAM = kernel_snapshot
-VERSION = 1.1
+VERSION = 1.1.1
 TARGET_DIR = /usr/local/bin
 
 # 源文件

@@ -55,7 +55,7 @@ int scan_directory_recursive(const char *dir_path, worker_pool_t *pool,
             continue;
         }
         
-        // 处理符号链接：像git一样记录符号链接本身，并递归处理目标
+        // 处理符号链接：像git一样只记录符号链接本身，不递归处理目标
         if (S_ISLNK(st.st_mode)) {
             // 记录符号链接本身（作为常规文件处理）
             (*total_files)++;
@@ -64,29 +64,14 @@ int scan_directory_recursive(const char *dir_path, worker_pool_t *pool,
                 usleep(1000);  // 1ms
             }
             
-            // 检查符号链接指向的目标
-            struct stat target_st;
-            if (stat(full_path, &target_st) == 0) {
-                // 如果指向目录，递归处理目录内容
-                if (S_ISDIR(target_st.st_mode)) {
-                    // 检查目录是否应该被忽略
-                    char combined_patterns[MAX_PATH_LEN * 2];
-                    if (config->exclude_patterns && strlen(config->exclude_patterns) > 0) {
-                        snprintf(combined_patterns, sizeof(combined_patterns), ".snapshot,%s", config->exclude_patterns);
-                    } else {
-                        strncpy(combined_patterns, ".snapshot", sizeof(combined_patterns) - 1);
-                        combined_patterns[sizeof(combined_patterns) - 1] = '\0';
-                    }
-                    
-                    if (!is_file_ignored(full_path, combined_patterns)) {
-                        // 递归处理符号链接指向的目录
-                        scan_directory_recursive(full_path, pool, config, total_files);
-                    }
-                }
-                // 如果指向文件，会在后续的遍历中被发现和处理
-            } else {
-                if (config->verbose) {
-                    fprintf(stderr, "警告: 符号链接目标不存在 %s\n", full_path);
+            // Git策略：只记录符号链接本身，不通过符号链接路径处理目标内容
+            // 目标文件/目录会在真实路径遍历时被发现和处理，避免重复计算
+            if (config->verbose) {
+                char link_target[MAX_PATH_LEN];
+                ssize_t link_len = readlink(full_path, link_target, sizeof(link_target) - 1);
+                if (link_len > 0) {
+                    link_target[link_len] = '\0';
+                    fprintf(stderr, "记录符号链接: %s -> %s\n", full_path, link_target);
                 }
             }
             continue; // 符号链接已处理完毕，继续下一个

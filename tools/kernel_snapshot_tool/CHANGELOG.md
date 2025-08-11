@@ -4,6 +4,37 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [1.1.1] - 2024-01-15
+
+### 🚀 符号链接处理策略优化 (Symbolic Link Processing Optimization)
+
+#### 改进功能 (Improved)
+- ⚡ **Git策略对齐**: 符号链接处理完全对齐Git行为，只记录符号链接本身，不递归处理目标
+- 🔄 **避免重复计算**: 消除通过符号链接路径的重复文件处理，显著提升性能
+- 🛡️ **循环链接防护**: 避免循环符号链接导致的无限递归问题
+- 📉 **代码简化**: 移除复杂的符号链接目标递归逻辑，提高代码可维护性
+
+#### 技术细节 (Technical Details)
+```c
+// 优化后的符号链接处理：只记录链接本身
+if (S_ISLNK(st.st_mode)) {
+    // 只检查符号链接本身，不递归处理目标
+    simple_check_file_with_list(base_path, full_path, &st, index, changes, unchanged, hash_calculations);
+    // Git策略：目标文件/目录会在真实路径遍历时被处理
+    continue;
+}
+```
+
+#### 性能影响 (Performance Impact)
+- ✅ **减少重复I/O**: 避免同一文件通过多个路径被重复处理
+- ✅ **内存效率**: 降低内存使用，特别是在符号链接密集的项目中
+- ✅ **处理速度**: 在包含大量符号链接的项目中性能提升明显
+
+#### 兼容性 (Compatibility)
+- ✅ **Git行为一致性**: 完全模拟Git的符号链接处理方式
+- ✅ **向后兼容**: 不影响现有快照文件的读取和比较
+- ✅ **跨平台稳定**: Linux、macOS等平台行为统一
+
 ## [1.1.0] - 2024-01-15
 
 ### 🔗 符号链接支持 (Symbolic Link Support)
