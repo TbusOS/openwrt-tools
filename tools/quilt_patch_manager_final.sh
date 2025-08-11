@@ -117,7 +117,14 @@ print_help() {
     printf "\n${YELLOW}>> 全局差异快照 (类 Git 功能, 可在任何目录运行)${NC}\n"
     printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-create [dir]" "为指定目录(默认当前)创建快照, 作为后续对比的基准。"
     printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-diff [dir]" "与快照对比, 找出指定目录(默认当前)下所有变更。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-status [dir]" "检查指定目录(默认当前)的快照状态。"
     printf "  ${PURPLE}%-26s${NC} %s\n" "snapshot-diff > files.txt" "【推荐用法】将所有新增和修改的文件列表输出到文件。"
+    
+    printf "\n${YELLOW}>> 快照文件列表命令 (基于 kernel_snapshot_tool)${NC}\n"
+    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-changes" "列出所有变更文件 (新增+修改), 适合生成 quilt 文件列表。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-new" "仅列出新增文件。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-modified" "仅列出修改文件。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-clean [force]" "清理快照数据 (force 参数跳过确认)。"
 
 
     printf "\n${YELLOW}>> Quilt 状态查询 (自动查找内核目录)${NC}\n"
@@ -135,6 +142,7 @@ print_help() {
     
     printf "\n${YELLOW}>> 环境与辅助命令${NC}\n"
     printf "  ${CYAN}%-26s${NC} %s\n" "clean" "交互式清理缓存和输出目录。"
+    printf "  ${PURPLE}%-26s${NC} %s\n" "distclean" "【一键清理】强制清理快照+重置quilt+清理工作目录，完全还原到原始状态。"
     printf "  ${RED}%-26s${NC} %s\n" "reset-env" "(危险) 重置内核 quilt 状态, 用于开发测试。"
     printf "  ${CYAN}%-26s${NC} %s\n" "help, -h, --help" "显示此帮助信息。"
     printf "  ${CYAN}%-26s${NC} %s\n" "version, -v, --version" "显示脚本版本信息。"
@@ -279,7 +287,7 @@ _fetch_patch_internal() {
     fi
 
     if curl -s -f "$patch_url" -o "$patch_file" && [[ -s "$patch_file" ]]; then
-        printf "%s" "$patch_file"
+                printf "%s" "$patch_file"
         return 0 # 0 = downloaded
     else
         [[ -f "$patch_file" ]] && rm -f "$patch_file"
@@ -543,7 +551,7 @@ test_patch_compatibility() {
         log_error "无法下载或找到补丁，请检查 Commit ID/文件路径或网络连接: $identifier"
         return 1
     fi
-
+    
     # 步骤 2: 检查与现有补丁的文件冲突
     log_info "  -> 步骤 2/3: 检查与 OpenWrt 现有内核补丁的文件冲突..."
     local patches_dir
@@ -722,6 +730,9 @@ create_patch() {
     local patch_name="$1"
     [[ -z "$patch_name" ]] && { log_error "请提供补丁名称"; return 1; }
     [[ ! "$patch_name" =~ \.patch$ ]] && patch_name="${patch_name}.patch"
+    
+    # 自动保存原始 quilt 状态（首次调用时）
+    save_original_quilt_state
     
     log_info "准备创建新补丁: $patch_name"
 
@@ -941,77 +952,45 @@ _process_file_for_snapshot() {
     printf "%s;%s\n" "$metadata" "$hash"
 }
 
-# 创建源码树快照
+# 创建源码树快照 (基于 kernel_snapshot_tool)
 snapshot_create() {
     local target_dir="${1:-.}" # 如果未提供参数，则默认为当前目录
-    local manifest_path="$ORIGINAL_PWD/$SNAPSHOT_FILE"
+    local project_name="${2:-snapshot-project}" # 可选的项目名称
 
     if [[ ! -d "$target_dir" ]]; then
         log_error "指定的目录不存在: $target_dir"
         return 1
     fi
     
-    # 检查 hashing 工具
-    local hash_cmd=""
-    if command -v "md5sum" &>/dev/null; then hash_cmd="md5sum"; elif command -v "md5" &>/dev/null; then hash_cmd="md5 -r"; else log_error "无法找到 'md5sum' 或 'md5' 命令。"; return 1; fi
-
-    # 跨平台兼容 (macOS vs Linux)
-    local os_type
-    local nproc_cmd
-    os_type=$(uname)
-    if [[ "$os_type" == "Darwin" ]]; then
-        nproc_cmd='sysctl -n hw.ncpu'
-    else
-        nproc_cmd='nproc --all'
-    fi
-    
     log_info "📸 正在为目录 '$target_dir' 创建源码树快照..."
     
-    # 1. 快速预扫描以获取总文件数
+    # 保留旧系统的文件总数计算和显示功能
     log_info "正在计算文件总数..."
     local total_files
     total_files=$(find "$target_dir" -type f -not -path "./$MAIN_WORK_DIR/*" | wc -l | tr -d ' ')
     if [[ $total_files -eq 0 ]]; then
         log_warning "在 '$target_dir' 中没有找到任何文件。"
-        # 仍然创建一个空的快照文件
-        { echo "# META-INFO"; echo "base_dir:$target_dir"; echo "created_at:$(date +%s)"; echo "# END-META"; } > "$manifest_path"
-        log_success "✅ 已创建一个空的快照。"
-        return 0
+        return 1
     fi
     log_info "共计 $total_files 个文件需要处理。"
-
-    # 2. 将核心处理逻辑放入后台并行执行
-    mkdir -p "$(dirname "$manifest_path")"
-    { echo "# META-INFO"; echo "base_dir:$target_dir"; echo "created_at:$(date +%s)"; echo "# END-META"; } > "$manifest_path"
     
-    export -f _process_file_for_snapshot
-    
-    # 使用 & 将命令放入后台执行，并将进程ID存起来
-    find "$target_dir" -type f -not -path "./$MAIN_WORK_DIR/*" -print0 | \
-        xargs -0 -P"$($nproc_cmd)" -I{} bash -c '_process_file_for_snapshot "{}" "$1" "$2"' _ "$os_type" "$hash_cmd" >> "$manifest_path" &
-    local process_pid=$!
-
-    # 3. 启动前台监视器来绘制进度条
-    local current_files=0
-    while kill -0 "$process_pid" 2>/dev/null; do
-        current_files=$(grep -c -v '^#' "$manifest_path")
-        _draw_progress_bar "$current_files" "$total_files"
-        sleep 0.2
-    done
-    
-    # 确保最终进度条为100%
-    _draw_progress_bar "$total_files" "$total_files"
-    printf "\n" # 进度条完成后换行
-
-    export -n _process_file_for_snapshot
-
-    local start_time; start_time=$(date +%s) # 注意: 这里的计时不准了，但为了保持结构完整性暂时保留
-    local end_time; end_time=$(date +%s)
-    local duration=$((end_time - start_time))
-
-    log_success "✅ 快照创建成功！"
-    log_info "已处理 $total_files 个文件。" # , 耗时 ${duration} 秒。"
-    log_info "快照文件保存在: $manifest_path"
+    # 尝试调用 kernel_snapshot_tool 的 create 命令
+    local tool_path="$SCRIPT_DIR/kernel_snapshot_tool/kernel_snapshot"
+    if [[ -f "$tool_path" ]]; then
+        log_info "使用 kernel_snapshot_tool 创建快照..."
+        if [[ "$target_dir" == "." ]]; then
+            # 当前目录模式
+            "$tool_path" create "$project_name"
+        else
+            # 指定目录模式
+            "$tool_path" create "$target_dir" "$project_name"
+        fi
+        return $?
+    else
+        log_error "kernel_snapshot_tool 未找到: $tool_path"
+        log_info "请先编译 kernel_snapshot_tool: cd kernel_snapshot_tool && make"
+        return 1
+    fi
 }
 
 # 对比快照并输出差异文件列表
@@ -1104,9 +1083,251 @@ snapshot_diff() {
     fi
 }
 
+# 检查快照状态 (基于 kernel_snapshot_tool)
+snapshot_status() {
+    local user_dir="$1" # 用户可能指定的子目录
+    
+    # 尝试调用 kernel_snapshot_tool 的 status 命令
+    local tool_path="$SCRIPT_DIR/kernel_snapshot_tool/kernel_snapshot"
+    if [[ -f "$tool_path" ]]; then
+        log_info "🔍 使用 kernel_snapshot_tool 检查快照状态..."
+        if [[ -n "$user_dir" ]]; then
+            cd "$user_dir" || { log_error "无法进入目录: $user_dir"; return 1; }
+        fi
+        "$tool_path" status
+        return $?
+    else
+        log_error "kernel_snapshot_tool 未找到: $tool_path"
+        log_info "请先编译 kernel_snapshot_tool: cd kernel_snapshot_tool && make"
+        return 1
+    fi
+}
+
+# 列出所有变更文件 (新增+修改)
+snapshot_list_changes() {
+    local user_dir="$1"
+    
+    local tool_path="$SCRIPT_DIR/kernel_snapshot_tool/kernel_snapshot"
+    if [[ -f "$tool_path" ]]; then
+        log_info "📝 使用 kernel_snapshot_tool 列出所有变更文件..."
+        if [[ -n "$user_dir" ]]; then
+            cd "$user_dir" || { log_error "无法进入目录: $user_dir"; return 1; }
+        fi
+        
+        # 确保输出目录存在
+        mkdir -p "$MAIN_WORK_DIR"
+        local output_file="$MAIN_WORK_DIR/changed_files.txt"
+        
+        # 执行命令并同时输出到终端和文件
+        "$tool_path" list-changes | tee "$output_file"
+        local exit_code=${PIPESTATUS[0]}
+        
+        if [[ $exit_code -eq 0 && -f "$output_file" ]]; then
+            log_info "💾 变更文件列表已保存到: $output_file"
+        fi
+        return $exit_code
+    else
+        log_error "kernel_snapshot_tool 未找到: $tool_path"
+        log_info "请先编译 kernel_snapshot_tool: cd kernel_snapshot_tool && make"
+        return 1
+    fi
+}
+
+# 仅列出新增文件
+snapshot_list_new() {
+    local user_dir="$1"
+    
+    local tool_path="$SCRIPT_DIR/kernel_snapshot_tool/kernel_snapshot"
+    if [[ -f "$tool_path" ]]; then
+        log_info "🆕 使用 kernel_snapshot_tool 列出新增文件..."
+        if [[ -n "$user_dir" ]]; then
+            cd "$user_dir" || { log_error "无法进入目录: $user_dir"; return 1; }
+        fi
+        
+        # 确保输出目录存在
+        mkdir -p "$MAIN_WORK_DIR"
+        local output_file="$MAIN_WORK_DIR/new_files.txt"
+        
+        # 执行命令并同时输出到终端和文件
+        "$tool_path" list-new | tee "$output_file"
+        local exit_code=${PIPESTATUS[0]}
+        
+        if [[ $exit_code -eq 0 && -f "$output_file" ]]; then
+            log_info "💾 新增文件列表已保存到: $output_file"
+        fi
+        return $exit_code
+    else
+        log_error "kernel_snapshot_tool 未找到: $tool_path"
+        log_info "请先编译 kernel_snapshot_tool: cd kernel_snapshot_tool && make"
+        return 1
+    fi
+}
+
+# 仅列出修改文件
+snapshot_list_modified() {
+    local user_dir="$1"
+    
+    local tool_path="$SCRIPT_DIR/kernel_snapshot_tool/kernel_snapshot"
+    if [[ -f "$tool_path" ]]; then
+        log_info "✏️ 使用 kernel_snapshot_tool 列出修改文件..."
+        if [[ -n "$user_dir" ]]; then
+            cd "$user_dir" || { log_error "无法进入目录: $user_dir"; return 1; }
+        fi
+        
+        # 确保输出目录存在
+        mkdir -p "$MAIN_WORK_DIR"
+        local output_file="$MAIN_WORK_DIR/modified_files.txt"
+        
+        # 执行命令并同时输出到终端和文件
+        "$tool_path" list-modified | tee "$output_file"
+        local exit_code=${PIPESTATUS[0]}
+        
+        if [[ $exit_code -eq 0 && -f "$output_file" ]]; then
+            log_info "💾 修改文件列表已保存到: $output_file"
+        fi
+        return $exit_code
+    else
+        log_error "kernel_snapshot_tool 未找到: $tool_path"
+        log_info "请先编译 kernel_snapshot_tool: cd kernel_snapshot_tool && make"
+        return 1
+    fi
+}
+
+# 清理快照数据 (基于 kernel_snapshot_tool)
+snapshot_clean() {
+    local force_flag="$1"
+    
+    local tool_path="$SCRIPT_DIR/kernel_snapshot_tool/kernel_snapshot"
+    if [[ -f "$tool_path" ]]; then
+        log_info "🧹 使用 kernel_snapshot_tool 清理快照数据..."
+        if [[ "$force_flag" == "force" ]]; then
+            "$tool_path" clean force
+        else
+            "$tool_path" clean
+        fi
+        return $?
+    else
+        log_error "kernel_snapshot_tool 未找到: $tool_path"
+        log_info "请先编译 kernel_snapshot_tool: cd kernel_snapshot_tool && make"
+        return 1
+    fi
+}
+
+# 强制重置 quilt 状态到原始状态 (无需用户确认，用于 distclean)
+force_reset_env() {
+    local kernel_source_dir
+    kernel_source_dir=$(find_kernel_source) || { log_warning "未找到内核源码目录，跳过 quilt 重置"; return 0; }
+    
+    local backup_file="$MAIN_WORK_DIR/original_quilt_state.backup"
+    local backup_dir="$MAIN_WORK_DIR/original_patches_backup"
+    
+    if [[ ! -f "$ORIGINAL_PWD/$backup_file" ]]; then
+        log_warning "⚠️ 未找到原始状态备份，跳过 quilt 重置"
+        return 0
+    fi
+    
+    log_info "📖 强制重置到原始 quilt 状态..."
+    
+    (
+        cd "$kernel_source_dir" || exit 1
+        
+        log_info "撤销所有补丁..."
+        quilt pop -a -f > /dev/null 2>&1 || true
+        
+        log_info "还原原始 patches 目录..."
+        rm -rf patches 2>/dev/null || true
+        
+        if grep -q "PATCHES_DIR_EXISTS: YES" "$backup_file"; then
+            if [[ -d "$backup_dir" ]]; then
+                cp -r "$backup_dir" patches
+                log_info "✅ 已还原原始 patches 目录"
+            fi
+        else
+            log_info "💡 原始状态无 patches 目录"
+        fi
+        
+        log_info "清理 quilt 状态..."
+        rm -rf .pc 2>/dev/null || true
+    )
+    
+    log_success "✅ quilt 状态已重置到原始状态"
+}
+
+# 彻底清理环境 (distclean: snapshot-clean force + reset-env force + clean)
+distclean_env() {
+    log_info "🚀 开始彻底清理环境到最干净状态..."
+    
+    echo "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    log_info "📊 第1步: 强制清理快照数据 (snapshot-clean force)"
+    echo "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    
+    if ! snapshot_clean force; then
+        log_warning "快照清理失败或无快照数据，继续执行下一步..."
+    else
+        log_success "✅ 快照数据清理完成。"
+    fi
+    
+    echo ""
+    echo "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    log_info "📊 第2步: 强制重置内核 quilt 状态到原始状态"
+    echo "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    
+    force_reset_env
+    
+    echo ""
+    echo "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    log_info "📊 第3步: 清理工作目录和缓存 (clean)"
+    echo "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    
+    # 强制清理工作目录，无需用户确认
+    force_clean_work_dir
+    
+    echo ""
+    echo "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    log_success "🎉 环境彻底清理完成！现在处于最干净的原始状态。"
+    log_info "💡 提示: 内核已恢复到最初的 quilt 环境，可以安全地开始新的补丁制作流程。"
+    echo "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    
+    return 0
+}
 
 
-# 清理工作目录
+
+# 强制清理工作目录 (无需用户确认，用于 distclean)
+force_clean_work_dir() {
+    log_info "🧹 强制清理工作目录: $MAIN_WORK_DIR..."
+    
+    # 强制清理缓存目录
+    if [[ -d "$ORIGINAL_PWD/$CACHE_DIR" ]]; then
+        log_info "清理缓存目录: $ORIGINAL_PWD/$CACHE_DIR"
+        rm -rf "$ORIGINAL_PWD/$CACHE_DIR"
+        log_success "✅ 缓存目录已清理。"
+    else
+        log_info "💡 缓存目录不存在，跳过。"
+    fi
+    
+    # 强制清理输出目录
+    if [[ -d "$ORIGINAL_PWD/$OUTPUT_DIR" ]]; then
+        log_info "清理输出目录: $ORIGINAL_PWD/$OUTPUT_DIR"
+        rm -rf "$ORIGINAL_PWD/$OUTPUT_DIR"
+        log_success "✅ 输出目录已清理。"
+    else
+        log_info "💡 输出目录不存在，跳过。"
+    fi
+    
+    # 强制清理工作目录
+    if [[ -d "$MAIN_WORK_DIR" ]]; then
+        log_info "清理工作目录: $MAIN_WORK_DIR"
+        rm -rf "$MAIN_WORK_DIR"
+        log_success "✅ 工作目录已清理。"
+    else
+        log_info "💡 工作目录不存在，跳过。"
+    fi
+    
+    log_success "🎉 工作目录强制清理完成！"
+}
+
+# 清理工作目录 (交互式)
 clean_work_dir() {
     log_info "🧹 清理工作目录: $MAIN_WORK_DIR..."
     printf "\n${YELLOW}是否要清理所有缓存? ($ORIGINAL_PWD/$CACHE_DIR) (y/N): ${NC}"
@@ -1125,10 +1346,78 @@ clean_work_dir() {
     log_success "🎉 清理完成！"
 }
 
-# 重置 quilt 和内核源码树的状态
+# 保存内核的原始 quilt 状态
+save_original_quilt_state() {
+    local kernel_source_dir
+    kernel_source_dir=$(find_kernel_source) || { log_error "未找到内核源码目录"; return 1; }
+    
+    local backup_file="$MAIN_WORK_DIR/original_quilt_state.backup"
+    local backup_dir="$MAIN_WORK_DIR/original_patches_backup"
+    
+    # 如果已经有备份，跳过
+    if [[ -f "$backup_file" ]]; then
+        log_info "💡 原始状态备份已存在，跳过保存。"
+        return 0
+    fi
+    
+    log_info "💾 保存内核原始 quilt 状态..."
+    
+    # 确保工作目录存在
+    mkdir -p "$MAIN_WORK_DIR"
+    
+    (
+        cd "$kernel_source_dir" || exit 1
+        
+        # 保存当前 quilt 应用状态
+        echo "# 内核原始 quilt 状态备份" > "$ORIGINAL_PWD/$backup_file"
+        echo "# 备份时间: $(date)" >> "$ORIGINAL_PWD/$backup_file"
+        echo "# 内核目录: $kernel_source_dir" >> "$ORIGINAL_PWD/$backup_file"
+        echo "" >> "$ORIGINAL_PWD/$backup_file"
+        
+        # 保存当前应用的补丁列表
+        echo "APPLIED_PATCHES:" >> "$ORIGINAL_PWD/$backup_file"
+        if quilt applied 2>/dev/null; then
+            quilt applied >> "$ORIGINAL_PWD/$backup_file" 2>/dev/null || echo "NONE" >> "$ORIGINAL_PWD/$backup_file"
+        else
+            echo "NONE" >> "$ORIGINAL_PWD/$backup_file"
+        fi
+        echo "" >> "$ORIGINAL_PWD/$backup_file"
+        
+        # 保存未应用的补丁列表
+        echo "UNAPPLIED_PATCHES:" >> "$ORIGINAL_PWD/$backup_file"
+        if quilt unapplied 2>/dev/null; then
+            quilt unapplied >> "$ORIGINAL_PWD/$backup_file" 2>/dev/null || echo "NONE" >> "$ORIGINAL_PWD/$backup_file"
+        else
+            echo "NONE" >> "$ORIGINAL_PWD/$backup_file"
+        fi
+        echo "" >> "$ORIGINAL_PWD/$backup_file"
+        
+        # 备份 patches 目录（如果存在）
+        if [[ -d "patches" ]]; then
+            log_info "📁 备份 patches 目录..."
+            cp -r patches "$ORIGINAL_PWD/$backup_dir" 2>/dev/null || true
+            echo "PATCHES_DIR_EXISTS: YES" >> "$ORIGINAL_PWD/$backup_file"
+        else
+            echo "PATCHES_DIR_EXISTS: NO" >> "$ORIGINAL_PWD/$backup_file"
+        fi
+        
+        # 备份 .pc 目录状态信息
+        if [[ -d ".pc" ]]; then
+            echo "QUILT_PC_EXISTS: YES" >> "$ORIGINAL_PWD/$backup_file"
+            echo "PC_DIR_CONTENTS:" >> "$ORIGINAL_PWD/$backup_file"
+            find .pc -type f 2>/dev/null | head -20 >> "$ORIGINAL_PWD/$backup_file" || true
+        else
+            echo "QUILT_PC_EXISTS: NO" >> "$ORIGINAL_PWD/$backup_file"
+        fi
+    )
+    
+    log_success "✅ 原始状态已保存到: $backup_file"
+}
+
+# 重置 quilt 和内核源码树到原始状态
 reset_env() {
-    log_warning "🔥 [危险] 此操作将重置 Quilt 和内核源码状态 🔥"
-    printf "${YELLOW}该操作将: 1. quilt pop -a -f  2. 删除所有补丁文件  3. 清理工作区\n"
+    log_warning "🔥 [危险] 此操作将重置 Quilt 和内核源码到原始状态 🔥"
+    printf "${YELLOW}该操作将还原到最初的内核 quilt 环境状态\n"
     printf "确定要继续吗? (y/N): ${NC}"
     read -r response
     [[ ! "$response" =~ ^[Yy]$ ]] && { log_info "用户取消操作"; return 0; }
@@ -1136,21 +1425,47 @@ reset_env() {
     local kernel_source_dir
     kernel_source_dir=$(find_kernel_source) || { log_error "未找到内核源码目录"; return 1; }
     
+    local backup_file="$MAIN_WORK_DIR/original_quilt_state.backup"
+    local backup_dir="$MAIN_WORK_DIR/original_patches_backup"
+    
+    if [[ ! -f "$ORIGINAL_PWD/$backup_file" ]]; then
+        log_error "❌ 未找到原始状态备份文件: $backup_file"
+        log_info "💡 提示: 请先运行一些补丁操作，系统会自动创建备份。"
+        return 1
+    fi
+    
+    log_info "📖 读取原始状态备份..."
+    
     (
         cd "$kernel_source_dir" || exit 1
-        log_info "1/2 强制撤销所有补丁..."
+        
+        log_info "1/3 强制撤销所有补丁..."
         quilt pop -a -f > /dev/null 2>&1 || true
         log_success "✅ 所有补丁已撤销"
 
-        log_info "2/2 删除旧的补丁文件..."
-        find patches -type f ! -name "series" -delete 2>/dev/null || true
-        # 确保 patches 目录存在
-        mkdir -p patches
-        log_success "✅ 补丁文件已删除"
+        log_info "2/3 还原原始 patches 目录..."
+        # 删除当前的 patches 目录
+        rm -rf patches 2>/dev/null || true
+        
+        # 检查原始状态是否有 patches 目录
+        if grep -q "PATCHES_DIR_EXISTS: YES" "$ORIGINAL_PWD/$backup_file"; then
+            if [[ -d "$ORIGINAL_PWD/$backup_dir" ]]; then
+                cp -r "$ORIGINAL_PWD/$backup_dir" patches
+                log_success "✅ 已还原原始 patches 目录"
+            else
+                log_warning "⚠️ 备份的 patches 目录不存在"
+            fi
+        else
+            log_info "💡 原始状态无 patches 目录，保持删除状态"
+        fi
+        
+        log_info "3/3 清理 quilt 状态..."
+        rm -rf .pc 2>/dev/null || true
+        log_success "✅ quilt 状态已清理"
     )
 
     clean_work_dir
-    log_success "🎉 环境重置完成！"
+    log_success "🎉 环境已重置到原始状态！"
 }
 
 # quilt 命令的通用执行器
@@ -1183,6 +1498,12 @@ main() {
         "auto-patch") check_dependencies "need_quilt"; auto_patch "$@";;
         "snapshot-create") snapshot_create "$@";;
         "snapshot-diff") snapshot_diff "$@";;
+        "snapshot-status") snapshot_status "$@";;
+        "snapshot-list-changes") snapshot_list_changes "$@";;
+        "snapshot-list-new") snapshot_list_new "$@";;
+        "snapshot-list-modified") snapshot_list_modified "$@";;
+        "snapshot-clean") snapshot_clean "$@";;
+        "distclean") distclean_env "$@";;
         "clean") clean_work_dir "$@";;
         "reset-env") check_dependencies "need_quilt"; reset_env "$@";;
         "status"|"series"|"applied"|"unapplied"|"top"|"files"|"push"|"pop"|"diff")

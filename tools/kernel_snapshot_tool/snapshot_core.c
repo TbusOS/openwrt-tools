@@ -118,8 +118,8 @@ int scan_directory_recursive(const char *dir_path, worker_pool_t *pool,
             
                     if ((*total_files % 1000) == 0) { // 每1000个文件显示一次进度
             printf("\r🔍 已扫描: %"PRIu64" 个文件", *total_files);
-            fflush(stdout);
-        }
+                fflush(stdout);
+            }
         }
         // 忽略符号链接和其他特殊文件类型
     }
@@ -135,7 +135,7 @@ static void* worker_thread(void *arg) {
     while (1) {
         pthread_mutex_lock(&pool->work_lock);
         
-        pthread_mutex_unlock(&pool->work_lock);
+            pthread_mutex_unlock(&pool->work_lock);
         
         // 从有界队列获取工作单元
         work_unit_t *work = bounded_work_queue_pop(pool->work_queue);
@@ -162,7 +162,7 @@ static void* worker_thread(void *arg) {
                     // 推送到结果队列进行流式写出
                     if (bounded_result_queue_push(pool->result_queue, result) == 0) {
                         __sync_fetch_and_add(&pool->processed_files, 1);
-                    } else {
+            } else {
                         free(result);
                         __sync_fetch_and_add(&pool->failed_files, 1);
                     }
@@ -654,7 +654,7 @@ void worker_pool_destroy(worker_pool_t *pool) {
     
     // 释放线程数组
     if (pool->threads) {
-        free(pool->threads);
+    free(pool->threads);
     }
     
     // 销毁同步原语
@@ -727,8 +727,8 @@ int process_file_content(const char *file_path, file_entry_t *entry, int use_git
         entry->path[MAX_PATH_LEN - 1] = '\0';
         free(normalized_path);
     } else {
-        strncpy(entry->path, file_path, MAX_PATH_LEN - 1);
-        entry->path[MAX_PATH_LEN - 1] = '\0';
+    strncpy(entry->path, file_path, MAX_PATH_LEN - 1);
+    entry->path[MAX_PATH_LEN - 1] = '\0';
     }
     
     entry->size = st.st_size;
@@ -760,9 +760,9 @@ int process_file_content(const char *file_path, file_entry_t *entry, int use_git
         }
     } else {
         // 普通文件，按原来的方式计算
-        if (use_git_hash) {
-            hash_result = calculate_git_hash(file_path, entry->hash);
-        } else {
+    if (use_git_hash) {
+        hash_result = calculate_git_hash(file_path, entry->hash);
+    } else {
             hash_result = calculate_sha256_hash(file_path, entry->hash);
         }
     }
@@ -1193,7 +1193,7 @@ int git_snapshot_create(const char *dir_path, const char *snapshot_path,
     if (config->show_progress) {
         worker_pool_wait_completion_with_progress(pool, total_files);
     } else {
-        worker_pool_wait_completion(pool);
+    worker_pool_wait_completion(pool);
     }
     
     // 快照文件已通过流式写入完成

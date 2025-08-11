@@ -47,21 +47,7 @@ typedef struct {
     int dirty;
 } simple_index_t;
 
-// 文件变更列表
-typedef struct file_change {
-    char path[MAX_PATH_LEN];
-    char status; // 'A'=added, 'M'=modified, 'D'=deleted
-    struct file_change *next;
-} file_change_t;
-
-typedef struct change_list {
-    file_change_t *added;
-    file_change_t *modified;
-    file_change_t *deleted;
-    uint64_t added_count;
-    uint64_t modified_count;
-    uint64_t deleted_count;
-} change_list_t;
+// 文件变更列表类型已在 snapshot_core.h 中定义
 
 // ========== 哈希表辅助函数 ==========
 
@@ -197,9 +183,9 @@ static void build_hash_table(simple_index_t *index) {
 
 // 函数声明
 simple_index_t* create_simple_index_from_snapshot(const char *snapshot_path);
-simple_index_t* load_simple_index(const char *index_path);
+void* load_simple_index(const char *index_path);
 int save_simple_index(simple_index_t *index, const char *index_path);
-void simple_check_status_with_list(const char *workspace_root, simple_index_t *index,
+int simple_check_status_with_list(const char *workspace_root, void *index,
                                   change_list_t *changes, uint64_t *unchanged, uint64_t *hash_calculations, const char *ignore_patterns);
 void simple_scan_directory_with_list(const char *base_path, const char *current_path, simple_index_t *index,
                                     change_list_t *changes, uint64_t *unchanged, uint64_t *hash_calculations, const char *ignore_patterns);
@@ -208,7 +194,6 @@ void simple_check_file_with_list(const char *base_path, const char *file_path, s
 void add_file_change(change_list_t *changes, const char *path, char status);
 void print_change_list(change_list_t *changes);
 void destroy_change_list(change_list_t *changes);
-void destroy_simple_index(simple_index_t *index);
 
 // Git风格的快速status实现
 int git_status_with_index(const char *workspace_root, const snapshot_config_t *config) {
@@ -386,7 +371,7 @@ simple_index_t* create_simple_index_from_snapshot(const char *snapshot_path) {
 }
 
 // 加载索引文件
-simple_index_t* load_simple_index(const char *index_path) {
+void* load_simple_index(const char *index_path) {
     FILE *fp = fopen(index_path, "r");
     if (!fp) {
         return NULL;
@@ -444,10 +429,7 @@ simple_index_t* load_simple_index(const char *index_path) {
             break;
         }
         
-        if (i < 3) {
-            printf("🔧 加载条目[%"PRIu64"]: path='%s', size=%"PRIu64"\n", 
-                   i, entry->path, entry->size);
-        }
+        // 调试信息已移除，避免干扰 quilt 文件列表格式
         
         entry->next = index->entries;
         index->entries = entry;
@@ -593,8 +575,9 @@ void destroy_change_list(change_list_t *changes) {
 }
 
 // 修改版的状态检查
-void simple_check_status_with_list(const char *workspace_root, simple_index_t *index,
+int simple_check_status_with_list(const char *workspace_root, void *index_ptr,
                                   change_list_t *changes, uint64_t *unchanged, uint64_t *hash_calculations, const char *ignore_patterns) {
+    simple_index_t *index = (simple_index_t *)index_ptr;
     *unchanged = *hash_calculations = 0;
     
     // 标记索引中的文件 - 不要破坏原始size字段
@@ -633,6 +616,8 @@ void simple_check_status_with_list(const char *workspace_root, simple_index_t *i
         
         entry = entry->next;
     }
+    
+    return 0; // 成功
 }
 
 // 修改版的目录扫描
@@ -756,7 +741,8 @@ void simple_check_file_with_list(const char *base_path, const char *file_path, s
 }
 
 // 销毁索引
-void destroy_simple_index(simple_index_t *index) {
+void destroy_simple_index(void *index_ptr) {
+    simple_index_t *index = (simple_index_t *)index_ptr;
     if (!index) return;
     
     simple_index_entry_t *entry = index->entries;

@@ -4,6 +4,7 @@
  */
 
 #include "snapshot_core.h"
+#include "index_cache_simple.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,9 @@ static void print_usage(const char *program_name) {
     printf("  %s create <目标目录> [项目名]           在指定目录创建工作区和基线快照\n", program_name);
     printf("  %s create [项目名]                     在当前目录创建工作区和基线快照\n", program_name);
     printf("  %s status                             检查当前工作区状态 (相对于基线快照)\n", program_name);
+    printf("  %s list-changes                       输出所有变更文件路径列表 (新增+修改)\n", program_name);
+    printf("  %s list-new                           仅输出新增文件路径列表\n", program_name);
+    printf("  %s list-modified                      仅输出修改文件路径列表\n", program_name);
     printf("  %s clean [force]                      清理配置文件中指定的工作目录快照数据\n", program_name);
     printf("  %s diff <旧快照> <新快照>             对比两个快照文件\n\n", program_name);
     printf("🔧 兼容模式 (旧版本支持):\n");
@@ -98,25 +102,41 @@ static int cmd_create(int argc, char *argv[], const snapshot_config_t *config) {
     workspace_config_t global_config = {0};
     char global_config_path[MAX_PATH_LEN];
     
-    // 获取工具所在目录
+    // 获取工具所在目录 - 通过 /proc/self/exe 获取准确路径
     char tool_dir[MAX_PATH_LEN];
-    char *argv0_copy = strdup(argv[0] ? argv[0] : "kernel_snapshot");
-    char *tool_dir_end = strrchr(argv0_copy, '/');
-    if (tool_dir_end) {
-        *tool_dir_end = '\0';
-        // 转换为绝对路径
-        if (realpath(argv0_copy, tool_dir) == NULL) {
-            strncpy(tool_dir, argv0_copy, MAX_PATH_LEN - 1);
+    char exe_path[MAX_PATH_LEN];
+    
+    // 首先尝试通过 /proc/self/exe 获取实际可执行文件路径
+    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    if (len != -1) {
+        exe_path[len] = '\0';
+        char *tool_dir_end = strrchr(exe_path, '/');
+        if (tool_dir_end) {
+            *tool_dir_end = '\0';
+            strncpy(tool_dir, exe_path, MAX_PATH_LEN - 1);
+            tool_dir[MAX_PATH_LEN - 1] = '\0';
+        } else {
+            strncpy(tool_dir, ".", MAX_PATH_LEN - 1);
             tool_dir[MAX_PATH_LEN - 1] = '\0';
         }
     } else {
-        // 在PATH中查找或使用当前目录
-        strncpy(tool_dir, ".", MAX_PATH_LEN - 1);
-        tool_dir[MAX_PATH_LEN - 1] = '\0';
+        // 回退到 argv[0] 方法
+        char *argv0_copy = strdup(argv[0] ? argv[0] : "kernel_snapshot");
+        char *tool_dir_end = strrchr(argv0_copy, '/');
+        if (tool_dir_end) {
+            *tool_dir_end = '\0';
+            if (realpath(argv0_copy, tool_dir) == NULL) {
+                strncpy(tool_dir, argv0_copy, MAX_PATH_LEN - 1);
+                tool_dir[MAX_PATH_LEN - 1] = '\0';
+            }
+        } else {
+            strncpy(tool_dir, ".", MAX_PATH_LEN - 1);
+            tool_dir[MAX_PATH_LEN - 1] = '\0';
+        }
+        free(argv0_copy);
     }
-    free(argv0_copy);
     
-    // 首先尝试工具所在目录的配置文件
+    // 只使用工具所在目录的配置文件，不回退到其他位置
     snprintf(global_config_path, sizeof(global_config_path), "%s/%s", tool_dir, GLOBAL_CONFIG_FILE);
     int has_global_config = 0;
     
@@ -129,32 +149,7 @@ static int cmd_create(int argc, char *argv[], const snapshot_config_t *config) {
             has_global_config = 1;
         }
     } else {
-        // 尝试当前目录的配置文件
-        snprintf(global_config_path, sizeof(global_config_path), "./%s", GLOBAL_CONFIG_FILE);
-        if (access(global_config_path, R_OK) == 0) {
-            FILE *fp = fopen(global_config_path, "r");
-            if (fp) {
-                printf("📖 读取全局配置文件: %s\n", global_config_path);
-                load_global_config(fp, &global_config);
-                fclose(fp);
-                has_global_config = 1;
-            }
-        } else {
-            // 最后尝试用户主目录的配置文件
-            const char *home = getenv("HOME");
-            if (home) {
-                snprintf(global_config_path, sizeof(global_config_path), "%s/%s", home, GLOBAL_CONFIG_FILE);
-                if (access(global_config_path, R_OK) == 0) {
-                    FILE *fp = fopen(global_config_path, "r");
-                    if (fp) {
-                        printf("📖 读取全局配置文件: %s\n", global_config_path);
-                        load_global_config(fp, &global_config);
-                        fclose(fp);
-                        has_global_config = 1;
-                    }
-                }
-            }
-        }
+        printf("📄 未找到全局配置文件: %s，使用默认设置\n", global_config_path);
     }
     
     // 应用全局配置中的默认工作目录和项目名
@@ -403,19 +398,8 @@ static int cmd_status(int argc, char *argv[], const snapshot_config_t *config) {
                     has_global_config = 1;
                 }
             } else {
-                const char *home = getenv("HOME");
-                if (home) {
-                    snprintf(global_config_path, sizeof(global_config_path), "%s/%s", home, GLOBAL_CONFIG_FILE);
-                    if (access(global_config_path, R_OK) == 0) {
-                        FILE *fp = fopen(global_config_path, "r");
-                        if (fp) {
-                            printf("📖 读取全局配置文件: %s\n", global_config_path);
-                            load_global_config(fp, &global_config);
-                            fclose(fp);
-                            has_global_config = 1;
-                        }
-                    }
-                }
+                // 如果前面的配置文件都不存在，使用工具目录作为默认保存位置
+                snprintf(global_config_path, sizeof(global_config_path), "%s/%s", tool_dir, GLOBAL_CONFIG_FILE);
             }
         }
         
@@ -524,7 +508,7 @@ static int cmd_clean(int argc, char *argv[], const snapshot_config_t *config) {
     }
     free(argv0_copy);
     
-    // 查找全局配置文件
+    // 只使用工具所在目录的配置文件，不回退到其他位置
     int has_global_config = 0;
     snprintf(global_config_path, sizeof(global_config_path), "%s/%s", tool_dir, GLOBAL_CONFIG_FILE);
     
@@ -537,30 +521,7 @@ static int cmd_clean(int argc, char *argv[], const snapshot_config_t *config) {
             has_global_config = 1;
         }
     } else {
-        snprintf(global_config_path, sizeof(global_config_path), "./%s", GLOBAL_CONFIG_FILE);
-        if (access(global_config_path, R_OK) == 0) {
-            FILE *fp = fopen(global_config_path, "r");
-            if (fp) {
-                printf("📖 读取全局配置文件: %s\n", global_config_path);
-                load_global_config(fp, &global_config);
-                fclose(fp);
-                has_global_config = 1;
-            }
-        } else {
-            const char *home = getenv("HOME");
-            if (home) {
-                snprintf(global_config_path, sizeof(global_config_path), "%s/%s", home, GLOBAL_CONFIG_FILE);
-                if (access(global_config_path, R_OK) == 0) {
-                    FILE *fp = fopen(global_config_path, "r");
-                    if (fp) {
-                        printf("📖 读取全局配置文件: %s\n", global_config_path);
-                        load_global_config(fp, &global_config);
-                        fclose(fp);
-                        has_global_config = 1;
-                    }
-                }
-            }
-        }
+        printf("📄 未找到全局配置文件: %s，使用默认设置\n", global_config_path);
     }
     
     // 确定目标目录
@@ -655,6 +616,163 @@ static int cmd_diff(int argc, char *argv[], const snapshot_config_t *config) {
     return ret;
 }
 
+// 内部函数：仅输出文件路径（给list命令使用）
+static void print_file_list_only(const change_list_t *changes, int list_type) {
+    // list_type: 0=all changes, 1=new only, 2=modified only
+    
+    // 输出新增文件
+    if ((list_type == 0 || list_type == 1) && changes->added_count > 0) {
+        file_change_t *change = changes->added;
+        while (change) {
+            printf("%s\n", change->path);
+            change = change->next;
+        }
+    }
+    
+    // 输出修改文件
+    if ((list_type == 0 || list_type == 2) && changes->modified_count > 0) {
+        file_change_t *change = changes->modified;
+        while (change) {
+            printf("%s\n", change->path);
+            change = change->next;
+        }
+    }
+}
+
+// 内部函数：获取变更列表的通用逻辑
+static int get_changes_list(const snapshot_config_t *config, change_list_t *changes) {
+    const char *dir_path = ".";  // 默认当前目录
+    
+    // 读取全局配置文件
+    workspace_config_t global_config = {0};
+    char global_config_path[MAX_PATH_LEN];
+    
+    // 获取工具所在目录
+    char tool_dir[MAX_PATH_LEN];
+    char *argv0 = getenv("_") ? getenv("_") : "kernel_snapshot";
+    char *argv0_copy = strdup(argv0);
+    char *tool_dir_end = strrchr(argv0_copy, '/');
+    if (tool_dir_end) {
+        *tool_dir_end = '\0';
+        if (realpath(argv0_copy, tool_dir) == NULL) {
+            strncpy(tool_dir, argv0_copy, MAX_PATH_LEN - 1);
+            tool_dir[MAX_PATH_LEN - 1] = '\0';
+        }
+    } else {
+        strncpy(tool_dir, ".", MAX_PATH_LEN - 1);
+        tool_dir[MAX_PATH_LEN - 1] = '\0';
+    }
+    free(argv0_copy);
+    
+    // 只使用工具所在目录的配置文件，不回退到其他位置
+    int has_global_config = 0;
+    snprintf(global_config_path, sizeof(global_config_path), "%s/%s", tool_dir, GLOBAL_CONFIG_FILE);
+    
+    if (access(global_config_path, R_OK) == 0) {
+        FILE *fp = fopen(global_config_path, "r");
+        if (fp) {
+            load_global_config(fp, &global_config);
+            fclose(fp);
+            has_global_config = 1;
+        }
+    }
+    
+    // 确定工作区目录
+    if (has_global_config && strlen(global_config.workspace_dir) > 0) {
+        dir_path = global_config.workspace_dir;
+    }
+    
+    // 查找工作区
+    char *workspace_root = find_workspace_root(dir_path);
+    if (!workspace_root) {
+        fprintf(stderr, "❌ 在目录 %s 中未找到工作区，请先运行 'create' 命令初始化\n", dir_path);
+        return 1;
+    }
+    
+    // 构建包含忽略模式的配置
+    static snapshot_config_t local_config;
+    local_config = *config;
+    if (has_global_config && strlen(global_config.ignore_patterns) > 0) {
+        local_config.exclude_patterns = strdup(global_config.ignore_patterns);
+    }
+    config = &local_config;
+    
+    // 加载索引
+    char index_path[MAX_PATH_LEN];
+    snprintf(index_path, sizeof(index_path), "%s/%s/%s", 
+             workspace_root, SNAPSHOT_DIR, INDEX_FILE);
+    
+    simple_index_t *index = load_simple_index(index_path);
+    if (!index) {
+        fprintf(stderr, "❌ 无法加载索引缓存，请重新运行 'create' 命令\n");
+        return 1;
+    }
+    
+    // 构建忽略模式
+    char combined_patterns[MAX_PATH_LEN * 2];
+    if (config->exclude_patterns && strlen(config->exclude_patterns) > 0) {
+        snprintf(combined_patterns, sizeof(combined_patterns), ".snapshot,%s", config->exclude_patterns);
+    } else {
+        strncpy(combined_patterns, ".snapshot", sizeof(combined_patterns) - 1);
+        combined_patterns[sizeof(combined_patterns) - 1] = '\0';
+    }
+    
+    // 检查状态并生成变更列表
+    uint64_t unchanged = 0, hash_calculations = 0;
+    simple_check_status_with_list(workspace_root, index, changes, &unchanged, &hash_calculations, combined_patterns);
+    
+    destroy_simple_index(index);
+    return 0;
+}
+
+static int cmd_list_changes(int argc, char *argv[], const snapshot_config_t *config) {
+    (void)argc; (void)argv;  // 暂时不使用参数
+    
+    change_list_t changes = {0};
+    
+    if (get_changes_list(config, &changes) != 0) {
+        return 1;
+    }
+    
+    // 输出所有变更文件 (新增+修改)
+    print_file_list_only(&changes, 0);
+    
+    destroy_change_list(&changes);
+    return 0;
+}
+
+static int cmd_list_new(int argc, char *argv[], const snapshot_config_t *config) {
+    (void)argc; (void)argv;  // 暂时不使用参数
+    
+    change_list_t changes = {0};
+    
+    if (get_changes_list(config, &changes) != 0) {
+        return 1;
+    }
+    
+    // 只输出新增文件
+    print_file_list_only(&changes, 1);
+    
+    destroy_change_list(&changes);
+    return 0;
+}
+
+static int cmd_list_modified(int argc, char *argv[], const snapshot_config_t *config) {
+    (void)argc; (void)argv;  // 暂时不使用参数
+    
+    change_list_t changes = {0};
+    
+    if (get_changes_list(config, &changes) != 0) {
+        return 1;
+    }
+    
+    // 只输出修改文件
+    print_file_list_only(&changes, 2);
+    
+    destroy_change_list(&changes);
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     snapshot_config_t config = {
         .thread_count = 0,  // 0 = 自动检测
@@ -720,6 +838,12 @@ int main(int argc, char *argv[]) {
         return cmd_diff(cmd_argc, cmd_args, &config);
     } else if (strcmp(command, "clean") == 0) {
         return cmd_clean(cmd_argc, cmd_args, &config);
+    } else if (strcmp(command, "list-changes") == 0) {
+        return cmd_list_changes(cmd_argc, cmd_args, &config);
+    } else if (strcmp(command, "list-new") == 0) {
+        return cmd_list_new(cmd_argc, cmd_args, &config);
+    } else if (strcmp(command, "list-modified") == 0) {
+        return cmd_list_modified(cmd_argc, cmd_args, &config);
     } else {
         fprintf(stderr, "错误: 未知命令 '%s'\n\n", command);
         print_usage(argv[0]);

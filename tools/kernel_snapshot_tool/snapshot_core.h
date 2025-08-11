@@ -294,4 +294,28 @@ int git_status_with_index(const char *workspace_root, const snapshot_config_t *c
 int create_index_during_snapshot(const char *workspace_root, const char *snapshot_path, 
                                 const snapshot_config_t *config);
 
+// 文件变更列表相关类型和函数 (用于list命令)
+typedef struct file_change {
+    char path[MAX_PATH_LEN];
+    char status; // 'A'=added, 'M'=modified, 'D'=deleted
+    struct file_change *next;
+} file_change_t;
+
+typedef struct change_list {
+    file_change_t *added;
+    file_change_t *modified;
+    file_change_t *deleted;
+    uint64_t added_count;
+    uint64_t modified_count;
+    uint64_t deleted_count;
+} change_list_t;
+
+// 文件变更检测函数
+int simple_check_status_with_list(const char *workspace_root, void *index, 
+                                  change_list_t *changes, uint64_t *unchanged, 
+                                  uint64_t *hash_calculations, const char *ignore_patterns);
+void destroy_change_list(change_list_t *changes);
+void* load_simple_index(const char *index_path);
+void destroy_simple_index(void *index);
+
 #endif // SNAPSHOT_CORE_H
