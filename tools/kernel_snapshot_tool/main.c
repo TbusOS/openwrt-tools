@@ -1,15 +1,19 @@
 /**
- * Git风格快照工具 - 主程序
- * 专注于零文件丢失的高性能实现
+ * Git风格快照工具 - 零文件丢失的高性能内核开发辅助工具
+ * 支持跨平台编译和实时文件监控
  */
 
 #include "snapshot_core.h"
 #include "index_cache_simple.h"
+#include "watch.h"  // 新增：watch 命令支持
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <getopt.h>
 #include <unistd.h>
+#include <getopt.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <errno.h>
 #include <inttypes.h>
 
 // 跨平台获取CPU核心数函数 - 避免复杂的系统头文件包含
@@ -28,59 +32,56 @@ static int get_cpu_count(void) {
 
 static void print_usage(const char *program_name) {
     printf("Git风格快照工具 - 零文件丢失设计\n\n");
-    printf("🎯 Git风格用法 (推荐):\n");
-    printf("  %s create <目标目录> [项目名]           在指定目录创建工作区和基线快照\n", program_name);
-    printf("  %s create [项目名]                     在当前目录创建工作区和基线快照\n", program_name);
-    printf("  %s status                             检查当前工作区状态 (相对于基线快照)\n", program_name);
-    printf("  %s list-changes                       输出所有变更文件路径列表 (新增+修改)\n", program_name);
-    printf("  %s list-new                           仅输出新增文件路径列表\n", program_name);
-    printf("  %s list-modified                      仅输出修改文件路径列表\n", program_name);
-    printf("  %s clean [force]                      清理配置文件中指定的工作目录快照数据\n", program_name);
-    printf("  %s diff <旧快照> <新快照>             对比两个快照文件\n\n", program_name);
+    printf("🎯 主要命令:\n");
+    printf("  %s create [project_name]   - 在当前或配置的目录创建快照\n", program_name);
+    printf("  %s status                  - 显示工作目录与最新快照的差异\n", program_name);
+    printf("  %s watch [directory]       - 实时监控文件系统变更 🆕\n", program_name);
+    printf("  %s list-changes            - (底层) 列出所有变更文件 (新增+修改)\n", program_name);
+    printf("  %s list-new                - (底层) 仅列出新增文件\n", program_name);
+    printf("  %s list-modified           - (底层) 仅列出修改文件\n", program_name);
+    printf("  %s clean [force]           - 清理配置文件中指定的工作目录快照数据\n", program_name);
+    printf("  %s diff <旧快照> <新快照>  - 对比两个快照文件\n\n", program_name);
+    
     printf("🔧 兼容模式 (旧版本支持):\n");
     printf("  %s create <目录> <快照文件>           创建指定快照文件\n", program_name);
     printf("  %s status <快照文件> <目录>           检查指定目录状态\n\n", program_name);
     
     printf("选项:\n");
-    printf("  -t, --threads=N    使用N个线程处理文件内容 (默认: CPU核心数)\n");
-    printf("  -v, --verbose      详细输出\n");
-    printf("  -g, --git-hash     使用Git兼容的SHA1哈希\n");
-    printf("  -e, --exclude=PAT  排除包含指定模式的文件\n");
-    printf("  -h, --help         显示此帮助\n\n");
+    printf("  -t, --threads <num>     - 指定处理文件的线程数\n");
+    printf("  -p, --progress          - 显示详细的进度条\n");
+    printf("  -g, --git-hash          - 使用Git兼容的SHA1哈希\n");
+    printf("  -e, --exclude=PAT       - 排除包含指定模式的文件\n");
+    printf("  -v, --verbose           - 详细输出\n");
+    printf("  -h, --help              - 显示此帮助\n");
+    printf("      --version           - 显示版本信息\n\n");
     
     printf("🚀 使用示例:\n");
-    printf("  # 方式1: 直接指定目录路径\n");
-    printf("  %s create /path/to/kernel/source linux-6.6  # 在指定目录创建工作区\n", program_name);
-    printf("  %s status                                   # 检查状态\n", program_name);
+    printf("  # 基本工作流\n");
+    printf("  %s create my-project                  # 创建基线快照\n", program_name);
+    printf("  %s watch                              # 开始实时监控 🆕\n", program_name);
+    printf("  # ... 进行开发工作 ...\n");
+    printf("  %s status                             # 检查变更\n", program_name);
     printf("  \n");
-    printf("  # 方式2: 先切换到目录，再执行\n");
-    printf("  cd /path/to/kernel/source                   # 切换到内核目录\n");
-    printf("  %s create linux-6.6                        # 在当前目录创建工作区\n", program_name);
-    printf("  # ... 修改、添加、删除文件 ...\n");
-    printf("  %s status                                   # 查看变更\n", program_name);
+    printf("  # 实时监控示例\n");
+    printf("  %s watch /path/to/kernel              # 监控指定目录\n", program_name);
+    printf("  %s watch -v -s=5                     # 详细模式，每5秒统计\n", program_name);
+    printf("  %s watch -f=\"*.tmp,build/*\"          # 额外过滤规则\n", program_name);
     printf("  \n");
-    printf("  # 方式3: 使用全局配置文件（推荐）\n");
-    printf("  %s create                                   # 使用配置文件中的默认目录\n", program_name);
-    printf("  %s status                                   # 快速状态检查\n", program_name);
-    printf("  \n");
-    printf("  # 清理和重新测试\n");
-    printf("  %s clean                                    # 清理配置文件中指定目录的快照数据\n", program_name);
-    printf("  %s clean force                             # 强制清理（无确认提示）\n\n", program_name);
+    printf("  # 全局配置文件使用\n");
+    printf("  %s create                             # 使用配置文件中的默认目录\n", program_name);
+    printf("  %s status                             # 快速状态检查\n", program_name);
+    printf("  %s clean                              # 清理快照数据\n\n", program_name);
     
-    printf("📁 工作区概念:\n");
-    printf("  工具会在目标目录创建 .snapshot/ 隐藏目录，包含:\n");
-    printf("  - baseline.snapshot  (基线快照文件)\n");
-    printf("  - workspace.conf     (工作区配置)\n");
-    printf("  - index.cache        (索引缓存，用于快速状态检查)\n\n");
+    printf("📋 跨平台支持:\n");
+    printf("  Linux:   x86_64, ARM32, ARM64, MIPS, RISC-V\n");
+    printf("  macOS:   Intel x86_64, Apple Silicon ARM64\n");
+    printf("  监控后端: Linux (inotify), macOS (FSEvents)\n\n");
     
     printf("⚙️  全局配置文件:\n");
     printf("  配置文件名: .kernel_snapshot.conf\n");
-    printf("  查找优先级:\n");
-    printf("    1. 工具所在目录    (推荐位置)\n");
-    printf("    2. 当前执行目录\n");
-    printf("    3. 用户主目录\n");
+    printf("  查找位置: 工具所在目录 (推荐)\n");
     printf("  \n");
-    printf("  配置文件格式:\n");
+    printf("  配置示例:\n");
     printf("    # 默认工作目录（绝对路径）\n");
     printf("    default_workspace_dir=/path/to/your/project\n");
     printf("    # 默认项目名称\n");
@@ -88,20 +89,24 @@ static void print_usage(const char *program_name) {
     printf("    # 忽略文件模式（用逗号分隔）\n");
     printf("    ignore_patterns=.git,*.tmp,*.log,*.bak,node_modules\n\n");
     
-    printf("🚫 文件忽略功能:\n");
-    printf("  支持的模式:\n");
-    printf("    *.tmp, *.log        # 后缀匹配\n");
-    printf("    temp_*              # 前缀匹配  \n");
-    printf("    .git, node_modules  # 精确匹配\n");
-    printf("  默认忽略: .snapshot（其他忽略模式请配置在配置文件中）\n\n");
-    
     printf("🎯 设计特点:\n");
     printf("  ✅ 绝对不丢失文件 - 单线程遍历确保完整性\n");
     printf("  🚀 高性能处理 - 多线程并行处理文件内容\n");
     printf("  ⚡ 智能索引缓存 - Git风格的快速状态检查\n");
     printf("  🔍 Git兼容性 - 支持Git风格的哈希和格式\n");
     printf("  📊 详细统计 - 完整的错误报告和性能指标\n");
+    printf("  👀 实时监控 - 跨平台文件系统事件监控\n");
     printf("  🎯 用户友好 - 支持全局配置，无需重复输入参数\n\n");
+    
+    printf("版本: %s\n", VERSION);
+    
+#ifdef PLATFORM_NAME
+    printf("平台: %s", PLATFORM_NAME);
+#ifdef ARCH_NAME
+    printf(" %s", ARCH_NAME);
+#endif
+    printf("\n");
+#endif
 }
 
 // 全局配置文件路径
@@ -863,6 +868,8 @@ int main(int argc, char *argv[]) {
         return cmd_create(cmd_argc, cmd_args, &config);
     } else if (strcmp(command, "status") == 0) {
         return cmd_status(cmd_argc, cmd_args, &config);
+    } else if (strcmp(command, "watch") == 0) {  // 新增 watch 命令
+        return cmd_watch(cmd_argc, cmd_args, &config);
     } else if (strcmp(command, "diff") == 0) {
         return cmd_diff(cmd_argc, cmd_args, &config);
     } else if (strcmp(command, "clean") == 0) {
@@ -874,8 +881,8 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(command, "list-modified") == 0) {
         return cmd_list_modified(cmd_argc, cmd_args, &config);
     } else {
-        fprintf(stderr, "错误: 未知命令 '%s'\n\n", command);
-        print_usage(argv[0]);
+        fprintf(stderr, "错误: 未知命令 '%s'\n", command);
+        fprintf(stderr, "使用 '%s --help' 查看帮助\n", argv[0]);
         return 1;
     }
 }
