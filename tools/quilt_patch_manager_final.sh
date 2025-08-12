@@ -27,7 +27,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
-VERSION="8.1.0"
+VERSION="8.2.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
@@ -125,6 +125,7 @@ print_help() {
     printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-new" "仅列出新增文件。"
     printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-modified" "仅列出修改文件。"
     printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-clean [force]" "清理快照数据 (force 参数跳过确认)。"
+    printf "  ${PURPLE}%-26s${NC} %s\n" "export-changed-files" "【新功能】导出变更文件到输出目录，保持原目录结构。"
 
 
     printf "\n${YELLOW}>> Quilt 状态查询 (自动查找内核目录)${NC}\n"
@@ -146,6 +147,28 @@ print_help() {
     printf "  ${RED}%-26s${NC} %s\n" "reset-env" "(危险) 重置内核 quilt 状态, 用于开发测试。"
     printf "  ${CYAN}%-26s${NC} %s\n" "help, -h, --help" "显示此帮助信息。"
     printf "  ${CYAN}%-26s${NC} %s\n" "version, -v, --version" "显示脚本版本信息。"
+    
+    printf "\n${GREEN}■ export-changed-files 详细用法示例 ■${NC}\n"
+    printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    printf "该功能可将所有变更文件按原目录结构导出，便于代码审查、备份和分享。\n\n"
+    printf "${YELLOW}典型使用流程:${NC}\n"
+    printf "  1. 创建快照基线:     %s ${CYAN}snapshot-create${NC}\n" "$(basename "$0")"
+    printf "  2. 修改内核代码 (添加/修改文件)...\n"
+    printf "  3. 检查变更状态:     %s ${CYAN}snapshot-status${NC}\n" "$(basename "$0")"
+    printf "  4. 导出变更文件:     %s ${PURPLE}export-changed-files${NC}\n\n" "$(basename "$0")"
+    printf "${YELLOW}导出结果示例:${NC}\n"
+    printf "  📁 ${OUTPUT_DIR}/changed_files/\n"
+    printf "  ├── linux-4.1.15/            ${CYAN}# 内核目录 (动态获取)${NC}\n"
+    printf "  │   ├── drivers/net/cve_fix.c ${GREEN}# 新增文件${NC}\n"
+    printf "  │   ├── kernel/Kconfig        ${YELLOW}# 修改文件${NC}\n"
+    printf "  │   └── fs/security/patch.h   ${GREEN}# 新增文件${NC}\n"
+    printf "  └── EXPORT_INDEX.txt          ${CYAN}# 导出索引${NC}\n\n"
+    printf "${YELLOW}适用场景:${NC}\n"
+    printf "  • 📋 代码审查 - 整理所有变更文件\n"
+    printf "  • 💾 补丁备份 - 防止代码丢失\n"
+    printf "  • 👥 团队协作 - 分享具体修改内容\n"
+    printf "  • 🔍 差异分析 - 按目录结构查看变更\n"
+    printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     printf "\n"
 }
 
@@ -1324,6 +1347,102 @@ snapshot_list_modified() {
     fi
 }
 
+# 导出变更文件到输出目录，保持原目录结构
+export_changed_files() {
+    local output_base_dir="$ORIGINAL_PWD/$OUTPUT_DIR/changed_files"
+    
+    log_info "🚀 开始导出变更文件到输出目录..."
+    
+    # 1. 先获取变更文件列表
+    local changed_files_list="$ORIGINAL_PWD/$MAIN_WORK_DIR/changed_files.txt"
+    
+    # 调用 snapshot-list-changes 获取变更文件列表
+    if ! ./quilt_patch_manager_final.sh snapshot-list-changes > /dev/null; then
+        log_error "获取变更文件列表失败"
+        return 1
+    fi
+    
+    if [[ ! -f "$changed_files_list" || ! -s "$changed_files_list" ]]; then
+        log_warning "📝 没有检测到文件变化，无需导出"
+        return 0
+    fi
+    
+    # 2. 创建输出根目录（先清理再创建）
+    rm -rf "$output_base_dir" 2>/dev/null || true
+    mkdir -p "$output_base_dir"
+    
+    # 3. 获取内核源码目录
+    local kernel_source_dir
+    kernel_source_dir=$(find_kernel_source_enhanced "导出文件") || { log_error "未找到内核源码目录"; return 1; }
+    
+    # 4. 动态获取内核目录名（只取最后一级目录名）
+    local kernel_dir_name
+    kernel_dir_name=$(basename "$kernel_source_dir")
+    local kernel_output_dir="$output_base_dir/$kernel_dir_name"
+    
+    # 创建内核目录
+    mkdir -p "$kernel_output_dir"
+    
+    # 5. 按原目录结构复制文件
+    local file_count=0
+    local success_count=0
+    
+    while IFS= read -r relative_file_path; do
+        # 跳过空行
+        [[ -z "$relative_file_path" ]] && continue
+        
+        file_count=$((file_count + 1))
+        
+        local src_file="$kernel_source_dir/$relative_file_path"
+        local dst_file="$kernel_output_dir/$relative_file_path"
+        local dst_dir=$(dirname "$dst_file")
+        
+        # 创建目标目录结构
+        if ! mkdir -p "$dst_dir"; then
+            log_warning "⚠️ 无法创建目录: $dst_dir"
+            continue
+        fi
+        
+        # 复制文件
+        if [[ -f "$src_file" ]]; then
+            if cp "$src_file" "$dst_file"; then
+                log_info "✅ 已复制: $relative_file_path"
+                success_count=$((success_count + 1))
+            else
+                log_warning "⚠️ 复制失败: $relative_file_path"
+            fi
+        else
+            log_warning "⚠️ 源文件不存在: $src_file"
+        fi
+    done < "$changed_files_list"
+    
+    # 6. 创建索引文件
+    local index_file="$output_base_dir/EXPORT_INDEX.txt"
+    {
+        echo "# 变更文件导出索引"
+        echo "# 导出时间: $(date)"
+        echo "# 内核源码目录: $kernel_source_dir"
+        echo "# 内核目录名: $kernel_dir_name"
+        echo "# 总文件数: $file_count"
+        echo "# 成功复制: $success_count"
+        echo ""
+        echo "# 导出结构:"
+        echo "# $output_base_dir/"
+        echo "#   ├── $kernel_dir_name/          <- 内核文件目录"
+        echo "#   │   ├── (变更的文件...)"
+        echo "#   └── EXPORT_INDEX.txt          <- 本文件"
+        echo ""
+        echo "# 文件列表 (相对于 $kernel_dir_name/ 目录):"
+        cat "$changed_files_list"
+    } > "$index_file"
+    
+    log_success "🎉 变更文件导出完成！"
+    log_info "📁 导出根目录: $output_base_dir"
+    log_info "📁 内核文件目录: $kernel_output_dir"
+    log_info "📊 统计: 成功 $success_count/$file_count 个文件"
+    log_info "📄 索引文件: $index_file"
+}
+
 # 清理快照数据 (基于 kernel_snapshot_tool)
 snapshot_clean() {
     local force_flag="$1"
@@ -1681,6 +1800,7 @@ main() {
         "snapshot-list-new") snapshot_list_new "$@";;
         "snapshot-list-modified") snapshot_list_modified "$@";;
         "snapshot-clean") snapshot_clean "$@";;
+        "export-changed-files") export_changed_files "$@";;
         "distclean") distclean_env "$@";;
         "clean") clean_work_dir "$@";;
         "reset-env") check_dependencies "need_quilt"; reset_env "$@";;
