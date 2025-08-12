@@ -1,0 +1,20 @@
+========================================
+🧪 开始跨平台内存监控驱动测试
+========================================
+测试架构: native
+测试模式: 基础测试
+开始时间: Wed Aug 13 02:02:35 CST 2025
+========================================
+[0;34m[INFO][0m 检查运行环境...
+系统信息: Darwin arm64
+脚本目录: /Users/sky/linux-kernel/github/openwrt-tools/tools/memory_monitor_drivers
+当前用户: sky
+内核版本: 24.6.0
+[1;33m[WARNING][0m 需要sudo权限来加载/卸载驱动模块
+请确保当前用户在sudoers文件中，或者使用 sudo ./test_driver.sh
+[0;32m[SUCCESS][0m 环境检查通过
+[0;35m[TEST][0m 编译测试 - 架构: native
+[0;31m[ERROR][0m 本地编译失败
+[0;31m[ERROR][0m 编译测试失败
+[0;34m[INFO][0m 清理测试环境...
+[0;32m[SUCCESS][0m 清理完成
