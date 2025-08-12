@@ -27,7 +27,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
-VERSION="8.2.0"
+VERSION="8.3.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
@@ -84,7 +84,7 @@ print_help() {
 
     printf "${PURPLE}■ 典型工作流程 (推荐) ■\n"
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    printf "支持使用 ${CYAN}commit-id${NC} 或 ${CYAN}本地补丁文件路径${NC} 作为输入。\n\n"
+    printf "支持使用 ${CYAN}commit-id${NC}、${CYAN}本地补丁文件路径${NC} 或 ${CYAN}网址链接${NC} 作为输入。\n\n"
     printf "示例 1: 使用 commit ${CYAN}abcde123${NC} 创建名为 ${CYAN}999-my-fix.patch${NC} 的补丁:\n"
     printf "  1. (可选) 测试兼容性: %s ${CYAN}test-patch abcde123${NC}\n" "$(basename "$0")"
     printf "  2. 创建新补丁:        %s ${CYAN}create-patch 999-my-fix.patch${NC}\n" "$(basename "$0")"
@@ -94,6 +94,9 @@ print_help() {
     printf "示例 2: 使用本地文件 ${CYAN}/path/to/cve.patch${NC} 作为基础:\n"
     printf "  - 测试: %s ${CYAN}test-patch /path/to/cve.patch${NC}\n" "$(basename "$0")"
     printf "  - 提取: %s ${CYAN}extract-files /path/to/cve.patch${NC}\n\n" "$(basename "$0")"
+    printf "示例 3: 使用网址 ${CYAN}https://example.com/patch.patch${NC} 作为基础:\n"
+    printf "  - 保存: %s ${CYAN}save https://example.com/patch.patch cve-fix${NC}\n" "$(basename "$0")"
+    printf "  - 测试: %s ${CYAN}test-patch https://example.com/patch.patch${NC}\n\n" "$(basename "$0")"
     
     printf "补丁文件将生成在内核的 ${GREEN}patches/${NC} 目录, 并自动拷贝一份到 ${GREEN}%s/${NC} 中。\n" "$OUTPUT_DIR"
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -102,14 +105,14 @@ print_help() {
     
     printf "\n${YELLOW}>> 准备与分析 (可在任何目录运行)${NC}\n"
     printf "  ${CYAN}%-26s${NC} %s\n" "test-patch <id|file>" "【核心】测试补丁兼容性, 生成智能冲突分析报告。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "fetch <id|file>" "下载或复制原始补丁到缓存, 并打印路径。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "save <id|file> [name]" "保存原始补丁到 ${OUTPUT_DIR} 供查阅。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "fetch <id|file|url>" "下载或复制原始补丁到缓存, 并打印路径。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "save <id|file|url> [name]" "保存原始补丁到 ${OUTPUT_DIR} 供查阅。"
     printf "  ${CYAN}%-26s${NC} %s\n" "extract-files <id|file>" "提取补丁影响的文件列表到 ${OUTPUT_DIR}/patch_files.txt。"
     printf "  ${CYAN}%-26s${NC} %s\n" "extract-metadata <id|file>" "提取补丁元数据 (作者, 描述等) 到 ${OUTPUT_DIR}/patch_metadata.txt。"
 
     printf "\n${YELLOW}>> 核心补丁操作 (自动查找内核目录)${NC}\n"
     printf "  ${CYAN}%-26s${NC} %s\n" "create-patch <name>" "创建一个新的空 quilt 补丁。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "add-files <file_list>" "从文件列表批量添加文件到当前 quilt 补丁。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "add-files <file_list>" "从文件列表批量添加文件到当前 quilt 补丁 (如 patch_files.txt)。"
     printf "  ${CYAN}%-26s${NC} %s\n" "refresh" "【标准】刷新补丁, 生成纯代码 diff, 并拷贝到输出目录。"
     printf "  ${PURPLE}%-26s${NC} %s\n" "refresh-with-header <id|file>" "【核心】刷新并注入元数据, 生成最终补丁, 并拷贝到输出目录。"
     printf "  ${GREEN}%-26s${NC} %s\n" "auto-patch <id|file> <name>" "【全自动】执行完整流程 (test, create, add, refresh-with-header)。"
@@ -369,7 +372,33 @@ _fetch_patch_internal() {
         return 3 # 3 = local file
     fi
     
-    # 如果不是文件，则假定为 commit_id，并使用下载/缓存逻辑
+    # 检查 identifier 是否是网址
+    if [[ "$identifier" =~ ^https?:// ]]; then
+        local url="$identifier"
+        # 为网址生成缓存文件名：使用URL的哈希值避免特殊字符问题
+        local url_hash=$(echo -n "$url" | md5sum | cut -d' ' -f1)
+        local patch_file="$ORIGINAL_PWD/$CACHE_DIR/url_${url_hash}.patch"
+        
+        # 检查缓存
+        if [[ -f "$patch_file" ]] && [[ -s "$patch_file" ]]; then
+            printf "%s" "$patch_file"
+            return 2 # 2 = cache hit
+        fi
+        
+        # 下载网址内容
+        log_info "正在从网址下载: $url" >&2
+        if curl -s -f -L "$url" -o "$patch_file" && [[ -s "$patch_file" ]]; then
+            log_success "网址下载成功" >&2
+            printf "%s" "$patch_file"
+            return 0 # 0 = downloaded
+        else
+            [[ -f "$patch_file" ]] && rm -f "$patch_file"
+            log_error "网址下载失败: $url" >&2
+            return 1 # 1 = failure
+        fi
+    fi
+    
+    # 如果不是文件也不是网址，则假定为 commit_id，并使用下载/缓存逻辑
     local commit_id="$identifier"
     local patch_url="${KERNEL_GIT_URL}/patch/?id=${commit_id}"
     local patch_file="$ORIGINAL_PWD/$CACHE_DIR/original_${commit_id}.patch"
@@ -379,11 +408,14 @@ _fetch_patch_internal() {
         return 2 # 2 = cache hit
     fi
 
+    log_info "正在从 kernel.org 下载 commit: $commit_id" >&2
     if curl -s -f "$patch_url" -o "$patch_file" && [[ -s "$patch_file" ]]; then
+        log_success "commit 下载成功" >&2
                 printf "%s" "$patch_file"
         return 0 # 0 = downloaded
     else
         [[ -f "$patch_file" ]] && rm -f "$patch_file"
+        log_error "commit 下载失败: $commit_id" >&2
         return 1 # 1 = failure
     fi
 }
@@ -418,11 +450,23 @@ fetch_patch() {
 save_patch() {
     local identifier="$1"
     local filename="$2"
-    [[ -z "$identifier" ]] && { log_error "请提供 commit ID 或补丁文件路径"; return 1; }
+    [[ -z "$identifier" ]] && { 
+        log_error "请提供 commit ID、补丁文件路径或网址"
+        log_info "可以使用以下格式："
+        log_info "  - commit ID: abcdef123456 [filename]"
+        log_info "  - 网址: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/patch/?id=<commit> [filename]"
+        log_info "  - 本地文件: /path/to/patch.patch [filename]"
+        log_info "输出目录: $ORIGINAL_PWD/$OUTPUT_DIR/"
+        return 1
+    }
     
     if [[ -z "$filename" ]]; then
         if [[ -f "$identifier" ]]; then
             filename=$(basename "$identifier")
+        elif [[ "$identifier" =~ ^https?:// ]]; then
+            # 对于网址，生成基于哈希的文件名
+            local url_hash=$(echo -n "$identifier" | md5sum | cut -d' ' -f1)
+            filename="url_${url_hash}.patch"
         else
             filename="${identifier}.patch"
         fi
@@ -603,7 +647,14 @@ analyze_patch_conflicts_v7() {
 # 测试补丁兼容性
 test_patch_compatibility() {
     local identifier="$1"
-    [[ -z "$identifier" ]] && { log_error "请提供 commit ID 或补丁文件路径"; return 1; }
+    [[ -z "$identifier" ]] && { 
+        log_error "请提供 commit ID、补丁文件路径或网址"
+        log_info "可以使用以下格式："
+        log_info "  - commit ID: abcdef123456"
+        log_info "  - 网址: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/patch/?id=<commit>"
+        log_info "  - 本地文件: /path/to/patch.patch 或 ./patch.patch"
+        return 1
+    }
 
     log_info "测试 '$identifier' 的补丁兼容性..."
     
@@ -725,6 +776,10 @@ test_patch_compatibility() {
         local report_name
         if [[ -f "$identifier" ]]; then
             report_name=$(basename "$identifier" .patch)
+        elif [[ "$identifier" =~ ^https?:// ]]; then
+            # 对于网址，生成基于哈希的报告名称
+            local url_hash=$(echo -n "$identifier" | md5sum | cut -d' ' -f1)
+            report_name="url_${url_hash:0:8}"
         else
             report_name=${identifier:0:7}
         fi
@@ -760,7 +815,15 @@ test_patch_compatibility() {
 # 提取补丁涉及的文件列表
 extract_files() {
     local identifier="$1"
-    [[ -z "$identifier" ]] && { log_error "请提供 commit ID 或补丁文件路径"; return 1; }
+    [[ -z "$identifier" ]] && { 
+        log_error "请提供 commit ID、补丁文件路径或网址"
+        log_info "可以使用以下格式："
+        log_info "  - commit ID: abcdef123456"
+        log_info "  - 网址: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/patch/?id=<commit>"
+        log_info "  - 本地文件: /path/to/patch.patch 或 ./patch.patch"
+        log_info "输出文件将保存到: $ORIGINAL_PWD/$OUTPUT_DIR/patch_files.txt"
+        return 1
+    }
     
     log_info "提取 '$identifier' 涉及的文件列表..."
     
@@ -847,7 +910,14 @@ create_patch() {
 # 添加文件到 quilt (最稳健版本)
 add_files() {
     local file_list_name="$1"
-    [[ -z "$file_list_name" ]] && { log_error "请提供文件列表名"; return 1; }
+    [[ -z "$file_list_name" ]] && { 
+        log_error "请提供文件列表名"
+        log_info "可以使用以下格式："
+        log_info "  - 相对路径: patch_files.txt"
+        log_info "  - 绝对路径: /path/to/file_list.txt"  
+        log_info "  - 默认位置: $ORIGINAL_PWD/$OUTPUT_DIR/patch_files.txt"
+        return 1
+    }
 
     local file_list_path
     if [[ -f "$file_list_name" ]]; then
@@ -916,7 +986,24 @@ quilt_refresh() {
 # 刷新补丁并注入元数据 (带拷贝功能)
 quilt_refresh_with_header() {
     local identifier="$1"
-    [[ -z "$identifier" ]] && { log_error "请提供 commit_id 或本地文件路径以注入元数据"; return 1; }
+    if [[ -z "$identifier" ]]; then
+        # 检查是否存在默认的元数据文件
+        local default_metadata_file="$ORIGINAL_PWD/$OUTPUT_DIR/patch_metadata.txt"
+        if [[ -f "$default_metadata_file" ]]; then
+            log_info "发现默认元数据文件，将使用: $default_metadata_file"
+            identifier="$default_metadata_file"
+        else
+            log_error "请提供 commit_id 或本地文件路径以注入元数据"
+            log_info "可以使用以下格式："
+            log_info "  - commit ID: abcdef123456"
+            log_info "  - 网址: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/patch/?id=<commit>"
+            log_info "  - 本地文件 (绝对路径): /path/to/patch.patch"
+            log_info "  - 本地文件 (相对路径): ./my-patch.patch"
+            log_info "  - 输出目录中的文件: $ORIGINAL_PWD/$OUTPUT_DIR/filename.patch"
+            log_info "  - 或者先运行: extract-metadata <id|file|url> 生成默认元数据文件"
+            return 1
+        fi
+    fi
 
     log_info "🔄 [核心] 刷新补丁并尝试从 '$identifier' 注入元数据..."
 
@@ -940,7 +1027,15 @@ quilt_refresh_with_header() {
         fi
         
         local header
-        header=$(awk '/^diff --git/ {exit} {print}' "$original_patch_file")
+        # 检查是否是 patch_metadata.txt 文件
+        if [[ "$(basename "$original_patch_file")" == "$PATCH_METADATA_FILE" ]]; then
+            # 如果是元数据文件，直接使用其内容作为头部
+            header=$(cat "$original_patch_file")
+            log_info "使用预提取的元数据文件: $(basename "$original_patch_file")"
+        else
+            # 否则从补丁文件中提取元数据头
+            header=$(awk '/^diff --git/ {exit} {print}' "$original_patch_file")
+        fi
         
         if [[ -z "$header" ]]; then
             log_warning "无法从 '$identifier' 提取元数据头 (可能不是标准的 commit 补丁)。"

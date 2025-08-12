@@ -4,6 +4,40 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [8.3.0] - 2024-01-15
+
+### 🌐 网址链接支持版本 (URL Link Support Version)
+
+#### 新增功能 (Added)
+- 🌐 **网址链接支持**: 新增对HTTPS/HTTP网址的完整支持，可直接使用网址作为补丁输入
+- 📥 **智能下载功能**: 自动下载网址补丁到本地缓存，支持断点续传和缓存复用
+- 🔗 **URL哈希缓存**: 使用URL哈希值生成缓存文件名，避免特殊字符问题
+- 🎯 **统一输入接口**: fetch、save、test-patch等命令统一支持commit-id、本地文件、网址三种输入方式
+
+#### 改进功能 (Improved)
+- 📚 **帮助文档增强**: 新增网址使用示例和详细说明
+- 🎨 **用户体验优化**: 统一的输入提示，支持三种不同的补丁来源
+- 🔧 **命令参数扩展**: fetch和save命令参数描述更新为支持URL
+
+#### 技术细节 (Technical Details)
+```bash
+# 新增的网址支持示例
+./quilt_patch_manager_final.sh save https://example.com/patch.patch cve-fix
+./quilt_patch_manager_final.sh test-patch https://example.com/patch.patch
+./quilt_patch_manager_final.sh fetch https://example.com/cve-2024.patch
+```
+
+#### 使用场景 (Use Cases)
+- 🌍 **在线补丁下载**: 直接从GitHub、CVE数据库等在线资源下载补丁
+- 📋 **团队协作**: 通过URL快速分享和应用补丁文件
+- 🔄 **自动化流程**: 脚本化处理在线补丁资源
+- 💾 **缓存优化**: 自动缓存下载的网址补丁，避免重复下载
+
+#### 兼容性 (Compatibility)
+- ✅ **向后兼容**: 保持所有v8.2.0功能，无破坏性变更
+- ✅ **输入格式自动检测**: 自动识别commit-id、本地文件路径、网址三种输入格式
+- ✅ **跨平台支持**: Linux、macOS等平台完全支持网址下载功能
+
 ## [8.2.0] - 2024-01-15
 
 ### 🚀 变更文件导出版本 (Changed Files Export Version)
