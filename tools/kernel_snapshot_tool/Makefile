@@ -19,7 +19,7 @@ endif
 
 # 项目信息
 PROGRAM = kernel_snapshot
-VERSION = 1.1
+VERSION = 1.1.2
 TARGET_DIR = /usr/local/bin
 
 # 源文件

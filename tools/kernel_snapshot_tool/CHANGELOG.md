@@ -4,6 +4,42 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [1.1.2] - 2024-01-15
+
+### 🔧 配置和工具集成优化 (Configuration and Tool Integration Optimization)
+
+#### 改进功能 (Improved)
+- ⚙️ **增强忽略模式**: 配置文件中新增内核编译相关的忽略模式
+  - 新增: `*.ko` (内核模块文件)
+  - 新增: `*.mod.c` (模块源文件)
+  - 新增: `scripts/kconfig/.tmp*` (kconfig临时文件)
+  - 新增: `vmlinux*` (内核镜像文件)
+  - 新增: `System.map` (符号映射文件)
+  - 新增: `Module.symvers` (模块符号版本文件)
+  - 新增: `.pc,patches` (quilt补丁目录)
+
+- 🛠️ **Quilt集成增强**: 大幅改进quilt补丁管理工具
+  - 🔄 **智能快照对比**: 集成kernel_snapshot_tool进行高效快照对比
+  - 📝 **代码格式优化**: 修复缩进问题，提高代码可读性
+  - ⚡ **性能提升**: 优化文件变更检测逻辑，减少重复计算
+  - 🎯 **错误处理增强**: 改进错误检测和用户反馈机制
+
+#### 技术细节 (Technical Details)
+```bash
+# 新增的忽略模式示例
+ignore_patterns=.git,.svn,*.tmp,*.log,*.bak,*.o,*.so,*.a,*.obj,*.exe,*.dll,Documentation,*.ko,*.mod.c,scripts/kconfig/.tmp*,vmlinux*,System.map,Module.symvers,.pc,patches
+```
+
+#### 兼容性 (Compatibility)
+- ✅ **向后兼容**: 现有配置文件继续有效，自动应用新的忽略规则
+- ✅ **内核开发优化**: 专门针对Linux内核开发工作流进行优化
+- ✅ **Quilt工作流**: 与quilt补丁管理系统深度集成
+
+#### 使用场景 (Use Cases)
+- 🐧 **内核开发**: 自动忽略编译产物，专注源码变更
+- 📦 **补丁制作**: 与quilt无缝集成，提高补丁开发效率
+- 🔍 **变更跟踪**: 精确识别有意义的代码变更，过滤噪音文件
+
 ## [1.1.0] - 2024-01-15
 
 ### 🔗 符号链接支持 (Symbolic Link Support)

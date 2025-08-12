@@ -238,8 +238,8 @@ find_kernel_source_enhanced() {
                     log_error "   目录: $configured_dir"
                     log_error "   原因: 缺少Makefile或KERNELRELEASE标识"
                     log_info "💡 请检查全局配置文件: $config_file"
-                    return 1
-                fi
+        return 1
+    fi
             else
                 log_error "❌ 全局配置文件中的default_workspace_dir无效或不存在"
                 log_info "💡 配置文件: $config_file"
@@ -812,10 +812,10 @@ create_patch() {
     (
         cd "$kernel_source_dir" || exit 1
         log_info "正在在目录 '$kernel_source_dir' 中创建补丁..."
-        if quilt new "$patch_name"; then
+    if quilt new "$patch_name"; then
             log_success "补丁 '$patch_name' 创建成功"
-        else
-            log_error "补丁创建失败"
+    else
+        log_error "补丁创建失败"
             exit 1
         fi
     )
@@ -1117,33 +1117,43 @@ snapshot_create() {
 # 对比快照并输出差异文件列表
 snapshot_diff() {
     local user_dir="$1" # 用户可能指定的子目录
-    local manifest_path="$ORIGINAL_PWD/$SNAPSHOT_FILE"
     
-    if [[ ! -f "$manifest_path" ]]; then
-        log_error "快照文件不存在: $manifest_path"; log_info "请先运行 'snapshot-create' 命令。"; return 1
-    fi
-
-    local base_dir
-    base_dir=$(grep '^base_dir:' "$manifest_path" | cut -d: -f2-)
-    if [[ -z "$base_dir" ]]; then
-        log_error "快照文件格式错误, 未找到 'base_dir' 元数据。"; return 1
-    fi
-
-    local final_target_dir="$base_dir"
-    if [[ -n "$user_dir" ]]; then
-        local real_user_dir; real_user_dir=$(realpath "$user_dir" 2>/dev/null || echo "$user_dir")
-        local real_base_dir; real_base_dir=$(realpath "$base_dir" 2>/dev/null || echo "$base_dir")
-        if [[ "$real_user_dir" != "$real_base_dir" && "$real_user_dir" != "$real_base_dir"/* ]]; then
-            log_error "指定的目录 '$user_dir' 不在快照的基础目录 '$base_dir' 之下。"; return 1
+    # 尝试调用 kernel_snapshot_tool 的 diff 命令
+    local tool_path="$SCRIPT_DIR/kernel_snapshot_tool/kernel_snapshot"
+    if [[ -f "$tool_path" ]]; then
+        log_info "🔎 使用 kernel_snapshot_tool 对比快照..."
+        if [[ -n "$user_dir" ]]; then
+            cd "$user_dir" || { log_error "无法进入目录: $user_dir"; return 1; }
         fi
-        final_target_dir="$user_dir"
+        
+        local snapshot_output
+        snapshot_output=$("$tool_path" diff -Q 2>&1)
+        local exit_code=$?
+        
+        if [[ $exit_code -ne 0 ]]; then
+            log_error "快照对比失败: $snapshot_output"
+            return 1
+        fi
+        
+        # 保存文件列表到工作目录
+        mkdir -p "$ORIGINAL_PWD/$MAIN_WORK_DIR"
+        echo "$snapshot_output" | tee "$ORIGINAL_PWD/$MAIN_WORK_DIR/patch_files.txt"
+        
+        if [[ -z "$snapshot_output" ]]; then
+            log_info "✅ 没有检测到文件变化"
+            return 0
+        fi
+        
+        local file_count
+        file_count=$(echo "$snapshot_output" | wc -l | tr -d ' ')
+        log_info "📝 检测到 $file_count 个文件变化，文件列表已保存到: $ORIGINAL_PWD/$MAIN_WORK_DIR/patch_files.txt"
+        
+        return 0
+    else
+        log_error "kernel_snapshot_tool 未找到: $tool_path"
+        log_info "请先编译 kernel_snapshot_tool: cd kernel_snapshot_tool && make"
+        return 1
     fi
-    log_info "🔎 正在为目录 '$final_target_dir' 对比快照..."
-    
-    local start_time; start_time=$(date +%s)
-
-    # 1. 生成当前状态清单
-    local hash_cmd; if command -v "md5sum" &>/dev/null; then hash_cmd="md5sum"; elif command -v "md5" &>/dev/null; then hash_cmd="md5 -r"; else log_error "需要 md5/md5sum"; return 1; fi
     
     local current_manifest
     current_manifest=$(mktemp)
@@ -1343,7 +1353,9 @@ force_reset_env() {
     local backup_dir="$MAIN_WORK_DIR/original_patches_backup"
     
     if [[ ! -f "$ORIGINAL_PWD/$backup_file" ]]; then
-        log_warning "⚠️ 未找到原始状态备份，跳过 quilt 重置"
+        log_warning "⚠️ 未找到原始状态备份文件: $backup_file"
+        log_warning "⚠️ 为安全起见，跳过 quilt 重置操作，避免意外删除现有补丁"
+        log_info "💡 如需创建备份文件，请先运行 'create-patch' 命令"
         return 0
     fi
     
@@ -1356,6 +1368,7 @@ force_reset_env() {
         quilt pop -a -f > /dev/null 2>&1 || true
         
         log_info "还原原始 patches 目录..."
+        # 只有当有备份文件时才删除现有的 patches 目录
         rm -rf patches 2>/dev/null || true
         
         if grep -q "PATCHES_DIR_EXISTS: YES" "$backup_file"; then
@@ -1393,7 +1406,14 @@ distclean_env() {
     log_info "📊 第2步: 强制重置内核 quilt 状态到原始状态"
     echo "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     
-    force_reset_env
+    # 检查是否有备份文件
+    local backup_file="$MAIN_WORK_DIR/original_quilt_state.backup"
+    if [[ -f "$ORIGINAL_PWD/$backup_file" ]]; then
+        force_reset_env
+    else
+        log_warning "⚠️ 未找到原始状态备份文件，跳过 quilt 重置步骤"
+        log_info "💡 当前 quilt 环境将保持不变"
+    fi
     
     echo ""
     echo "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1589,6 +1609,43 @@ reset_env() {
     log_success "🎉 环境已重置到原始状态！"
 }
 
+# quilt status - 显示补丁状态
+show_quilt_status() {
+    local kernel_source_dir
+    kernel_source_dir=$(find_kernel_source_enhanced "quilt status") || { log_error "未找到内核源码目录"; return 1; }
+    
+    ( 
+        cd "$kernel_source_dir" || exit 1
+        
+        log_info "📊 Quilt 补丁状态："
+        printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        
+        # 检查是否有补丁目录
+        if [[ ! -d "patches" ]]; then
+            log_warning "📄 没有发现 patches 目录"
+            return 0
+        fi
+        
+        # 获取补丁系列信息
+        local total_patches=0
+        local applied_patches=0
+        local current_patch=""
+        
+        if quilt series >/dev/null 2>&1; then
+            total_patches=$(quilt series 2>/dev/null | wc -l | tr -d ' ')
+            applied_patches=$(quilt applied 2>/dev/null | wc -l | tr -d ' ')
+            current_patch=$(quilt top 2>/dev/null || echo "无")
+        fi
+        
+        printf "  📦 ${CYAN}补丁总数${NC}: $total_patches\n"
+        printf "  ✅ ${GREEN}已应用${NC}: $applied_patches\n"
+        printf "  ❌ ${YELLOW}未应用${NC}: $((total_patches - applied_patches))\n"
+        printf "  🔝 ${PURPLE}顶部补丁${NC}: $current_patch\n"
+        
+        printf "\n"
+    )
+}
+
 # quilt 命令的通用执行器
 run_quilt_command() {
     local quilt_cmd="$1"; shift
@@ -1627,7 +1684,8 @@ main() {
         "distclean") distclean_env "$@";;
         "clean") clean_work_dir "$@";;
         "reset-env") check_dependencies "need_quilt"; reset_env "$@";;
-        "status"|"series"|"applied"|"unapplied"|"top"|"files"|"push"|"pop"|"diff")
+        "status") check_dependencies "need_quilt"; show_quilt_status "$@";;
+        "series"|"applied"|"unapplied"|"top"|"files"|"push"|"pop"|"diff")
             check_dependencies "need_quilt"; run_quilt_command "$command" "$@";;
         "help"|"-h"|"--help") print_help;;
         "version"|"-v"|"--version") print_version;;

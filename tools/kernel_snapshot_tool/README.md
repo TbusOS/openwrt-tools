@@ -177,7 +177,22 @@ path/to/file.c;size;mtime;hash_hex
 ```bash
 # 排除临时文件和编译产物
 ./kernel_snapshot -e "*.o,*.tmp,.git" create src/ clean.snapshot
+
+# 内核开发专用：排除编译产物和补丁文件
+./kernel_snapshot -e "*.ko,*.mod.c,vmlinux*,System.map,Module.symvers,.pc,patches" create kernel/ kernel.snapshot
+
+# 完整的内核开发忽略模式（v1.1.2默认配置）
+./kernel_snapshot -e "*.o,*.ko,*.mod.c,scripts/kconfig/.tmp*,vmlinux*,System.map,Module.symvers,.pc,patches" create kernel/ kernel-clean.snapshot
 ```
+
+**v1.1.2新增的内核开发忽略模式：**
+- `*.ko` - 内核模块文件
+- `*.mod.c` - 模块源文件  
+- `scripts/kconfig/.tmp*` - kconfig临时文件
+- `vmlinux*` - 内核镜像文件
+- `System.map` - 符号映射文件
+- `Module.symvers` - 模块符号版本文件
+- `.pc,patches` - quilt补丁目录
 
 ## 🧪 测试和验证
 
