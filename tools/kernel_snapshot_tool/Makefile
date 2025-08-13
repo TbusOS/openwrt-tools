@@ -57,7 +57,7 @@ endif
 
 # 项目信息
 PROGRAM = kernel_snapshot
-VERSION = 1.2.0
+VERSION = 1.2.1
 TARGET_DIR = /usr/local/bin
 
 # 源文件 (新增 watch 相关文件)

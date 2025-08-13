@@ -302,11 +302,74 @@ const char* file_monitor_get_platform_name(void) {
 #define MAX_WATCH_DIRS 1024
 #define EVENT_SIZE (sizeof(struct inotify_event))
 #define BUF_LEN (1024 * (EVENT_SIZE + 16))
+#define EVENT_DEDUP_WINDOW_MS 500  // 事件去重时间窗口：500毫秒（更长的窗口处理CREATE+CLOSE_WRITE组合）
 
 static int g_inotify_fd = -1;
 static int g_watch_descriptors[MAX_WATCH_DIRS];
 static char g_watch_paths[MAX_WATCH_DIRS][MAX_PATH_LEN];
 static int g_watch_count = 0;
+
+// 事件去重结构
+typedef struct recent_event {
+    char path[MAX_PATH_LEN];
+    file_event_type_t type;
+    uint64_t timestamp;
+    struct recent_event *next;
+} recent_event_t;
+
+static recent_event_t *g_recent_events = NULL;
+
+// 清理过期的事件记录
+static void cleanup_expired_events(uint64_t current_time) {
+    recent_event_t **current = &g_recent_events;
+    while (*current) {
+        if (current_time - (*current)->timestamp > EVENT_DEDUP_WINDOW_MS) {
+            recent_event_t *to_delete = *current;
+            *current = (*current)->next;
+            free(to_delete);
+        } else {
+            current = &((*current)->next);
+        }
+    }
+}
+
+// 检查是否为重复事件
+static int is_duplicate_event(const char *path, file_event_type_t type, uint64_t timestamp) {
+    cleanup_expired_events(timestamp);
+    
+    recent_event_t *current = g_recent_events;
+    while (current) {
+        if (current->type == type && 
+            strcmp(current->path, path) == 0 &&
+            (timestamp - current->timestamp) <= EVENT_DEDUP_WINDOW_MS) {
+            return 1; // 是重复事件
+        }
+        current = current->next;
+    }
+    return 0; // 不是重复事件
+}
+
+// 记录新事件
+static void record_event(const char *path, file_event_type_t type, uint64_t timestamp) {
+    recent_event_t *new_event = malloc(sizeof(recent_event_t));
+    if (!new_event) return;
+    
+    strncpy(new_event->path, path, sizeof(new_event->path) - 1);
+    new_event->path[sizeof(new_event->path) - 1] = '\0';
+    new_event->type = type;
+    new_event->timestamp = timestamp;
+    new_event->next = g_recent_events;
+    g_recent_events = new_event;
+}
+
+// 清理所有事件记录
+static void cleanup_all_events(void) {
+    while (g_recent_events) {
+        recent_event_t *to_delete = g_recent_events;
+        g_recent_events = g_recent_events->next;
+        free(to_delete);
+    }
+}
 
 // 递归添加目录监控
 static int add_watch_recursive(int fd, const char *path, const watch_config_t *config) {
@@ -473,27 +536,80 @@ int file_monitor_start(const watch_config_t *config, watch_stats_t *stats) {
                             "%s/%s", watch_path, event->name);
                     file_event.timestamp = get_current_timestamp_ms();
                     
-                    // 确定事件类型
-                    if (event->mask & (IN_CREATE | IN_MOVED_TO)) {
-                        file_event.type = FILE_EVENT_CREATED;
-                    } else if (event->mask & (IN_MODIFY | IN_CLOSE_WRITE)) {
-                        file_event.type = FILE_EVENT_MODIFIED;
-                    } else if (event->mask & (IN_DELETE | IN_MOVED_FROM)) {
-                        file_event.type = FILE_EVENT_DELETED;
-                    } else {
-                        file_event.type = FILE_EVENT_MODIFIED; // 默认
-                    }
+                    // 智能事件判断 - 每次操作只显示最终的、最有意义的事件
+                    int should_process = 1;
                     
-                    // 获取文件大小
-                    if (file_event.type != FILE_EVENT_DELETED) {
+                    if (event->mask & IN_DELETE || event->mask & IN_MOVED_FROM) {
+                        // 文件删除 - 立即处理，优先级最高
+                        file_event.type = FILE_EVENT_DELETED;
+                    } else if (event->mask & IN_CLOSE_WRITE) {
+                        // 文件写入完成 - 这是最可靠的"操作完成"指示
                         struct stat st;
                         if (stat(file_event.path, &st) == 0) {
-                            file_event.file_size = st.st_size;
+                            // 检查文件是否为空或很小，以及是否是最近创建的
+                            recent_event_t *recent = g_recent_events;
+                            int found_recent_create = 0;
+                            uint64_t now = get_current_timestamp_ms();
+                            
+                            // 检查最近500ms内是否有同一文件的CREATE事件
+                            while (recent) {
+                                if (strcmp(recent->path, file_event.path) == 0 && 
+                                    recent->type == FILE_EVENT_CREATED &&
+                                    (now - recent->timestamp) <= EVENT_DEDUP_WINDOW_MS) {
+                                    found_recent_create = 1;
+                                    break;
+                                }
+                                recent = recent->next;
+                            }
+                            
+                            if (found_recent_create) {
+                                // 最近刚创建的文件，CLOSE_WRITE是创建操作的一部分，跳过
+                                should_process = 0;
+                            } else {
+                                // 已存在文件的修改操作
+                                file_event.type = FILE_EVENT_MODIFIED;
+                            }
+                        } else {
+                            // 文件不存在了，跳过
+                            should_process = 0;
                         }
+                    } else if (event->mask & IN_CREATE) {
+                        // 文件创建 - 只处理这个事件，忽略后续的CLOSE_WRITE
+                        file_event.type = FILE_EVENT_CREATED;
+                    } else if (event->mask & IN_MOVED_TO) {
+                        // 文件移入 - 视为创建
+                        file_event.type = FILE_EVENT_CREATED;
+                    } else {
+                        // 跳过其他所有事件（包括IN_MODIFY）
+                        should_process = 0;
                     }
                     
-                    if (config->callback) {
-                        config->callback(&file_event, config->user_data);
+                    // 只有当should_process为1时才处理事件
+                    if (should_process) {
+                        // 获取文件大小
+                        if (file_event.type != FILE_EVENT_DELETED) {
+                            struct stat st;
+                            if (stat(file_event.path, &st) == 0) {
+                                file_event.file_size = st.st_size;
+                            }
+                        }
+                        
+                        // 事件去重检查
+                        if (!is_duplicate_event(file_event.path, file_event.type, file_event.timestamp)) {
+                            record_event(file_event.path, file_event.type, file_event.timestamp);
+                            
+                            if (config->callback) {
+                                config->callback(&file_event, config->user_data);
+                            }
+                        } else {
+                            // 调试信息：显示被过滤的重复事件
+                            if (config->verbose) {
+                                char time_str[32];
+                                format_time_string(time_str, sizeof(time_str));
+                                printf("[%s] 🔄 DUPLICATE %s (已过滤)\n", 
+                                       time_str, file_event.path);
+                            }
+                        }
                     }
                 }
             }
@@ -509,6 +625,9 @@ int file_monitor_start(const watch_config_t *config, watch_stats_t *stats) {
     close(g_inotify_fd);
     g_inotify_fd = -1;
     g_watch_count = 0;
+    
+    // 清理事件去重记录
+    cleanup_all_events();
     
     return 0;
 }
