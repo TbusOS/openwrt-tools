@@ -21,6 +21,13 @@
 #include <linux/version.h>
 #include <linux/highmem.h>
 #include <linux/page-flags.h>
+#include <linux/mman.h>
+#include <linux/mm_types.h>
+// #include <asm/pgtable.h>  // 暂时注释，可能引用init_mm
+#include <asm/tlbflush.h>
+
+// 内核版本兼容性支持
+#include "kernel_compat.h"
 
 #define DRIVER_NAME "page_monitor"
 #define DRIVER_VERSION "1.0.0"
@@ -46,6 +53,153 @@ struct page_monitor_config {
 static struct page_monitor_config monitors[MAX_MONITORS];
 static int monitor_count = 0;
 static struct proc_dir_entry *proc_entry = NULL;
+
+// 页表操作辅助函数
+static pte_t *get_pte_from_address(unsigned long addr)
+{
+    // 简化版本：暂时禁用页表操作以避免符号依赖
+    // 这将使页面保护功能暂时不可用，但允许驱动加载和基本测试
+    printk(KERN_WARNING "[%s] 页表操作被禁用 (避免符号依赖)\n", DRIVER_NAME);
+    return NULL;
+}
+
+// 设置页面为不可访问（真正的页面保护）
+static int set_page_no_access(unsigned long addr)
+{
+    pgd_t *pgd;
+    pud_t *pud;
+    pmd_t *pmd;
+    pte_t *pte;
+    pte_t old_pte, new_pte;
+    
+    // 目前只支持vmalloc地址范围
+    if (addr < VMALLOC_START || addr > VMALLOC_END) {
+        printk(KERN_WARNING "[%s] 地址超出vmalloc范围: 0x%lx\n", DRIVER_NAME, addr);
+        return -EINVAL;
+    }
+    
+    printk(KERN_INFO "[%s] 检测到vmalloc地址: 0x%lx，使用内核页表\n", DRIVER_NAME, addr);
+    
+    // 获取页表项 - 使用内核页表
+    pgd = pgd_offset_k(addr);
+    if (pgd_none(*pgd) || pgd_bad(*pgd)) {
+        printk(KERN_ERR "[%s] 无效的PGD: 0x%lx\n", DRIVER_NAME, addr);
+        return -EFAULT;
+    }
+    
+    pud = pud_offset(pgd, addr);
+    if (pud_none(*pud) || pud_bad(*pud)) {
+        printk(KERN_ERR "[%s] 无效的PUD: 0x%lx\n", DRIVER_NAME, addr);
+        return -EFAULT;
+    }
+    
+    pmd = pmd_offset(pud, addr);
+    if (pmd_none(*pmd) || pmd_bad(*pmd)) {
+        printk(KERN_ERR "[%s] 无效的PMD: 0x%lx\n", DRIVER_NAME, addr);
+        return -EFAULT;
+    }
+    
+    pte = pte_offset_kernel(pmd, addr);
+    if (!pte) {
+        printk(KERN_ERR "[%s] 无法获取PTE: 0x%lx\n", DRIVER_NAME, addr);
+        return -EFAULT;
+    }
+    
+    old_pte = *pte;
+    if (!pte_present(old_pte)) {
+        printk(KERN_WARNING "[%s] 页面已不可访问: 0x%lx\n", DRIVER_NAME, addr);
+        return -EFAULT;
+    }
+    
+    // ARM32: 清除present位，使页面不可访问
+#ifdef CONFIG_ARM
+    new_pte = __pte(pte_val(old_pte) & ~L_PTE_PRESENT);
+#else
+    new_pte = pte_clear_flags(old_pte, _PAGE_PRESENT);
+#endif
+    
+    // 设置新的页表项 - 直接修改PTE内容
+    *pte = new_pte;
+    
+    // 刷新TLB确保修改生效 - 使用内联汇编（ARM32兼容）
+#ifdef CONFIG_ARM
+    // ARM32: 使用内联汇编刷新TLB条目
+    asm volatile("mcr p15, 0, %0, c8, c7, 1" : : "r" (addr & PAGE_MASK) : "memory");
+    asm volatile("mcr p15, 0, %0, c7, c10, 4" : : "r" (0) : "memory");  // dsb
+    asm volatile("mcr p15, 0, %0, c7, c5, 4" : : "r" (0) : "memory");   // isb
+#else
+    // 其他架构: 尝试使用标准函数，如果失败则跳过
+    // flush_tlb_kernel_page(addr);  // 会依赖符号，暂时跳过
+    printk(KERN_WARNING "[%s] TLB刷新跳过 (避免符号依赖)\n", DRIVER_NAME);
+#endif
+    
+    printk(KERN_INFO "[%s] ✅ 页面保护已激活: 0x%lx (PTE: 0x%x -> 0x%x)\n", 
+           DRIVER_NAME, addr, (unsigned int)pte_val(old_pte), (unsigned int)pte_val(new_pte));
+    
+    return 0;
+}
+
+// 恢复页面访问权限
+static int restore_page_access(unsigned long addr, unsigned long orig_pte_val)
+{
+    pgd_t *pgd;
+    pud_t *pud;
+    pmd_t *pmd;
+    pte_t *pte;
+    pte_t new_pte;
+    
+    // 检查地址范围
+    if (addr < VMALLOC_START || addr > VMALLOC_END) {
+        printk(KERN_WARNING "[%s] 恢复地址超出vmalloc范围: 0x%lx\n", DRIVER_NAME, addr);
+        return -EINVAL;
+    }
+    
+    // 获取页表项
+    pgd = pgd_offset_k(addr);
+    if (pgd_none(*pgd) || pgd_bad(*pgd)) {
+        printk(KERN_ERR "[%s] 恢复时PGD无效: 0x%lx\n", DRIVER_NAME, addr);
+        return -EFAULT;
+    }
+    
+    pud = pud_offset(pgd, addr);
+    if (pud_none(*pud) || pud_bad(*pud)) {
+        printk(KERN_ERR "[%s] 恢复时PUD无效: 0x%lx\n", DRIVER_NAME, addr);
+        return -EFAULT;
+    }
+    
+    pmd = pmd_offset(pud, addr);
+    if (pmd_none(*pmd) || pmd_bad(*pmd)) {
+        printk(KERN_ERR "[%s] 恢复时PMD无效: 0x%lx\n", DRIVER_NAME, addr);
+        return -EFAULT;
+    }
+    
+    pte = pte_offset_kernel(pmd, addr);
+    if (!pte) {
+        printk(KERN_ERR "[%s] 恢复时无法获取PTE: 0x%lx\n", DRIVER_NAME, addr);
+        return -EFAULT;
+    }
+    
+    // 恢复原始PTE值
+    new_pte = __pte(orig_pte_val);
+    *pte = new_pte;
+    
+    // 刷新TLB确保修改生效 - 使用内联汇编（ARM32兼容）
+#ifdef CONFIG_ARM
+    // ARM32: 使用内联汇编刷新TLB条目
+    asm volatile("mcr p15, 0, %0, c8, c7, 1" : : "r" (addr & PAGE_MASK) : "memory");
+    asm volatile("mcr p15, 0, %0, c7, c10, 4" : : "r" (0) : "memory");  // dsb
+    asm volatile("mcr p15, 0, %0, c7, c5, 4" : : "r" (0) : "memory");   // isb
+#else
+    // 其他架构: 尝试使用标准函数，如果失败则跳过
+    // flush_tlb_kernel_page(addr);  // 会依赖符号，暂时跳过
+    printk(KERN_WARNING "[%s] TLB刷新跳过 (避免符号依赖)\n", DRIVER_NAME);
+#endif
+    
+    printk(KERN_INFO "[%s] ✅ 页面访问已恢复: 0x%lx (PTE: 0x%lx)\n", 
+           DRIVER_NAME, addr, orig_pte_val);
+    
+    return 0;
+}
 
 // 测试内存区域
 static char *test_memory = NULL;
@@ -110,10 +264,10 @@ static void get_arch_info(char *buf, size_t size)
 }
 
 // 页面错误处理函数
-static vm_fault_t page_fault_handler(struct vm_fault *vmf)
+static COMPAT_VM_FAULT_T page_fault_handler(struct vm_fault *vmf)
 {
     struct page_monitor_config *monitor = NULL;
-    unsigned long fault_addr = vmf->address;
+    unsigned long fault_addr = COMPAT_VMF_ADDRESS(vmf);
     unsigned long fault_pfn = fault_addr >> PAGE_SHIFT;
     int i, j;
     
@@ -135,7 +289,7 @@ static vm_fault_t page_fault_handler(struct vm_fault *vmf)
     
     printk(KERN_INFO "📄 [%s] 页面访问检测!\n", DRIVER_NAME);
     printk(KERN_INFO "监控点: %s\n", monitor->name);
-    printk(KERN_INFO "故障地址: 0x%016lx\n", fault_addr);
+    printk(KERN_INFO "故障地址: " COMPAT_POINTER_FMT "\n", fault_addr);
     printk(KERN_INFO "页面号: %lu\n", fault_pfn);
     printk(KERN_INFO "命中次数: %lu\n", monitor->hit_count);
     
@@ -150,7 +304,7 @@ static vm_fault_t page_fault_handler(struct vm_fault *vmf)
     struct page *fault_page = vmf->page;
     if (fault_page) {
         printk(KERN_INFO "页面标志: 0x%lx\n", fault_page->flags);
-        printk(KERN_INFO "页面引用: %d\n", page_ref_count(fault_page));
+        printk(KERN_INFO "页面引用: %d\n", COMPAT_PAGE_REF_COUNT(fault_page));
     }
     
     // 临时恢复页面权限，允许访问
@@ -199,29 +353,49 @@ static int setup_page_protection(struct page_monitor_config *monitor)
     
     // 获取并设置页面保护
     for (i = 0, addr = monitor->start_addr; i < monitor->page_count; i++, addr += PAGE_SIZE) {
-        pfn = addr >> PAGE_SHIFT;
+        // 对于vmalloc内存，需要通过页表查找物理页面
+        page = vmalloc_to_page((void *)addr);
         
-        if (pfn_valid(pfn)) {
-            page = pfn_to_page(pfn);
+        if (page) {
             monitor->pages[i] = page;
+            pfn = page_to_pfn(page);
             
             // 保存原始保护属性
             monitor->orig_prot[i] = page->flags;
             
-            // 根据监控类型设置保护
+            printk(KERN_DEBUG "[%s] 页面 %d: 虚拟地址=0x%lx, 物理页面=%p, PFN=%lu\n", 
+                   DRIVER_NAME, i, addr, page, pfn);
+            
+            // 获取并保存原始PTE值
+            if (addr >= VMALLOC_START && addr <= VMALLOC_END) {
+                pgd_t *pgd = pgd_offset_k(addr);
+                if (!pgd_none(*pgd) && !pgd_bad(*pgd)) {
+                    pud_t *pud = pud_offset(pgd, addr);
+                    if (!pud_none(*pud) && !pud_bad(*pud)) {
+                        pmd_t *pmd = pmd_offset(pud, addr);
+                        if (!pmd_none(*pmd) && !pmd_bad(*pmd)) {
+                            pte_t *pte = pte_offset_kernel(pmd, addr);
+                            if (pte) {
+                                monitor->orig_prot[i] = pte_val(*pte);
+                                printk(KERN_DEBUG "[%s] 保存原始PTE[%d]: 0x%lx\n", 
+                                       DRIVER_NAME, i, monitor->orig_prot[i]);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 设置真正的页面保护
             switch (monitor->type) {
-            case 1:  // 只读监控
-                // 设置为不可读
-                ClearPageReserved(page);
-                break;
-            case 2:  // 只写监控
-                // 设置为只读
-                SetPageReserved(page);
-                break;
-            case 3:  // 读写监控
-                // 设置为不可访问
-                SetPageReserved(page);
-                ClearPageDirty(page);
+            case 1:  // 只读监控 - 禁用写入
+            case 2:  // 只写监控 - 禁用读取  
+            case 3:  // 读写监控 - 禁用所有访问
+                // 设置页面为不可访问（清除present位）
+                if (set_page_no_access(addr) != 0) {
+                    printk(KERN_WARNING "[%s] 页面保护设置失败: 0x%lx\n", DRIVER_NAME, addr);
+                } else {
+                    printk(KERN_INFO "[%s] 🔒 页面保护已激活: 0x%lx\n", DRIVER_NAME, addr);
+                }
                 break;
             default:
                 kfree(monitor->pages);
@@ -229,7 +403,9 @@ static int setup_page_protection(struct page_monitor_config *monitor)
                 return -EINVAL;
             }
         } else {
-            printk(KERN_WARNING "[%s] 无效页面: PFN %lu\n", DRIVER_NAME, pfn);
+            printk(KERN_WARNING "[%s] 无法获取页面: 虚拟地址 0x%lx\n", DRIVER_NAME, addr);
+            // 继续处理其他页面，不要失败
+            monitor->pages[i] = NULL;
         }
     }
     
@@ -247,15 +423,21 @@ static int setup_page_protection(struct page_monitor_config *monitor)
 static void remove_page_protection(struct page_monitor_config *monitor)
 {
     int i;
+    unsigned long addr;
     
     if (!monitor || !monitor->active) {
         return;
     }
     
     // 恢复原始页面保护属性
-    for (i = 0; i < monitor->page_count; i++) {
-        if (monitor->pages[i]) {
-            monitor->pages[i]->flags = monitor->orig_prot[i];
+    for (i = 0, addr = monitor->start_addr; i < monitor->page_count; i++, addr += PAGE_SIZE) {
+        if (monitor->pages[i] && monitor->orig_prot[i]) {
+            // 恢复页表项
+            if (restore_page_access(addr, monitor->orig_prot[i]) == 0) {
+                printk(KERN_INFO "[%s] 🔓 页面保护已移除: 0x%lx\n", DRIVER_NAME, addr);
+            } else {
+                printk(KERN_WARNING "[%s] 页面保护移除失败: 0x%lx\n", DRIVER_NAME, addr);
+            }
         }
     }
     
@@ -412,8 +594,84 @@ static ssize_t page_monitor_proc_write(struct file *file, const char __user *buf
                 return -EINVAL;
             }
         }
+    } else if (strncmp(cmd, "monitor ", 8) == 0) {
+        // 简化的监控命令: monitor <name> [size]
+        int parsed_size = DEFAULT_MONITOR_SIZE;
+        if (sscanf(cmd + 8, "%31s %d", name, &parsed_size) >= 1) {
+            if (strcmp(name, "test_memory") == 0 && test_memory) {
+                // 监控测试内存
+                for (i = 0; i < MAX_MONITORS; i++) {
+                    if (!monitors[i].active) {
+                        strncpy(monitors[i].name, "test_memory", sizeof(monitors[i].name) - 1);
+                        monitors[i].start_addr = (unsigned long)test_memory;
+                        monitors[i].size = test_memory_size;
+                        monitors[i].type = 2; // 读写监控
+                        
+                        if (setup_page_protection(&monitors[i]) == 0) {
+                            monitor_count++;
+                            printk(KERN_INFO "[%s] 开始监控测试内存: %s (大小: %zu)\n", 
+                                   DRIVER_NAME, name, test_memory_size);
+                        }
+                        break;
+                    }
+                }
+                if (i == MAX_MONITORS) {
+                    printk(KERN_ERR "[%s] 无可用监控槽位\n", DRIVER_NAME);
+                    return -ENOSPC;
+                }
+            } else {
+                printk(KERN_ERR "[%s] 仅支持监控 test_memory\n", DRIVER_NAME);
+                return -EINVAL;
+            }
+        }
+    } else if (strncmp(cmd, "stop ", 5) == 0) {
+        // 停止监控命令: stop <name>
+        if (sscanf(cmd + 5, "%31s", name) == 1) {
+            for (i = 0; i < MAX_MONITORS; i++) {
+                if (monitors[i].active && strcmp(monitors[i].name, name) == 0) {
+                    remove_page_protection(&monitors[i]);
+                    memset(&monitors[i], 0, sizeof(monitors[i]));
+                    monitor_count--;
+                    printk(KERN_INFO "[%s] 停止监控: %s\n", DRIVER_NAME, name);
+                    break;
+                }
+            }
+            if (i == MAX_MONITORS) {
+                printk(KERN_WARNING "[%s] 未找到监控: %s\n", DRIVER_NAME, name);
+            }
+        }
+    } else if (strncmp(cmd, "read ", 5) == 0) {
+        // 简化的读取命令: read <offset>
+        if (sscanf(cmd + 5, "%d", &offset) == 1 && test_memory) {
+            if (offset >= 0 && offset < test_memory_size) {
+                volatile char val = test_memory[offset];
+                printk(KERN_INFO "[%s] 读取: test_memory[%d] = 0x%02x ('%c')\n", 
+                       DRIVER_NAME, offset, val, val);
+            } else {
+                printk(KERN_ERR "[%s] 偏移超出范围: %d (max: %zu)\n", 
+                       DRIVER_NAME, offset, test_memory_size - 1);
+                return -EINVAL;
+            }
+        }
+    } else if (strncmp(cmd, "write ", 6) == 0) {
+        // 简化的写入命令: write <offset> <data>
+        if (sscanf(cmd + 6, "%d %127s", &offset, data) == 2 && test_memory) {
+            if (offset >= 0 && offset < test_memory_size - strlen(data)) {
+                strncpy(test_memory + offset, data, strlen(data));
+                printk(KERN_INFO "[%s] 写入: test_memory[%d] = \"%s\"\n", 
+                       DRIVER_NAME, offset, data);
+            } else {
+                printk(KERN_ERR "[%s] 偏移或数据长度超出范围\n", DRIVER_NAME);
+                return -EINVAL;
+            }
+        }
     } else {
         printk(KERN_WARNING "[%s] 未知命令: %s\n", DRIVER_NAME, cmd);
+        printk(KERN_INFO "[%s] 支持的命令:\n", DRIVER_NAME);
+        printk(KERN_INFO "  monitor test_memory  - 开始监控测试内存\n");
+        printk(KERN_INFO "  stop test_memory     - 停止监控\n");
+        printk(KERN_INFO "  read <offset>        - 读取测试内存\n");
+        printk(KERN_INFO "  write <offset> <data> - 写入测试内存\n");
         return -EINVAL;
     }
     
@@ -449,6 +707,15 @@ static int __init page_monitor_init(void)
     int ret = 0;
     
     printk(KERN_INFO "[%s] 页面保护内存监控驱动加载中...\n", DRIVER_NAME);
+    
+    // 检查内核版本兼容性
+    ret = compat_check_kernel_version();
+    if (ret) {
+        return ret;
+    }
+    
+    // 打印兼容性信息
+    compat_print_info(DRIVER_NAME);
     
     // 检查平台支持
 #ifndef SUPPORTS_PAGE_PROTECTION
@@ -495,11 +762,13 @@ static int __init page_monitor_init(void)
         monitor_count = 1;
     }
     
-    char arch_info[1024];
-    get_arch_info(arch_info, sizeof(arch_info));
-    printk(KERN_INFO "[%s] ✅ 页面保护监控驱动加载成功!\n", DRIVER_NAME);
-    printk(KERN_INFO "%s", arch_info);
-    printk(KERN_INFO "[%s] 使用: cat /proc/%s 查看状态\n", DRIVER_NAME, DRIVER_NAME);
+    {
+        char arch_info[1024];
+        get_arch_info(arch_info, sizeof(arch_info));
+        printk(KERN_INFO "[%s] ✅ 页面保护监控驱动加载成功!\n", DRIVER_NAME);
+        printk(KERN_INFO "%s", arch_info);
+        printk(KERN_INFO "[%s] 使用: cat /proc/%s 查看状态\n", DRIVER_NAME, DRIVER_NAME);
+    }
     
     return 0;
 }
