@@ -1,0 +1,227 @@
+1. 拉取补丁
+./quilt_patch_manager_final.sh save 654b33ada4ab5e926cd9c570196fefa7bec7c1df
+
+或者可以进行补丁测试
+./quilt_patch_manager_final.sh test-patch 654b33ada4ab5e926cd9c570196fefa7bec7c1df
+
+这条命令如果补丁已经下载过，则会直接进行测试，测试主要目的是：
+1) 检查target目标架构下的补丁有无此补丁内文件的相关代码改动。
+2) 检查实际build_dir内核目录下的代码和补丁的代码是否有代码冲突。
+
+[INFO] 工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work
+[INFO] 测试 '654b33ada4ab5e926cd9c570196fefa7bec7c1df' 的补丁兼容性...
+[INFO]   -> 步骤 1/3: 获取补丁文件...
+[INFO]      检测到 commit '654b33ada4ab5e926cd9c570196fefa7bec7c1df' 的本地缓存, 将直接使用。
+[SUCCESS]      成功使用已缓存的补丁。
+       路径: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work/cache/original_654b33ada4ab5e926cd9c570196fefa7bec7c1df.patch
+[INFO]   -> 步骤 2/3: 检查与 OpenWrt 现有内核补丁的文件冲突...
+[SUCCESS]      成功定位到当前架构的补丁目录: /home/zhangbh/CVE/test/test-kernel/xxx/target/linux/imx6ul/patches
+[INFO]      发现 584 个现有补丁, 开始扫描...
+     扫描中: [##################################################] 584/584 (100%)
+[SUCCESS]      ✅ 未发现与现有补丁的文件冲突。
+[INFO]   -> 步骤 3/3: 在解压后的内核源码中执行干跑 (dry-run) 测试...
+[SUCCESS]      成功定位内核源码 (用于 dry-run): /home/zhangbh/CVE/test/test-kernel/xxx/build_dir/linux-imx6ul_imx6_pax/linux-4.1.15
+[INFO]      开始干跑 (dry-run) 测试...
+[WARNING] ⚠️  补丁存在冲突或问题！正在启动智能分析器...
+[INFO] 智能分析报告已生成。请查看:
+  /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work/outputs/test-patch-report-654b33a.log
+  
+输出的冲突分析报告，可以用cat 命令在控制台下查看，有颜色打印
+patch_manager_work/outputs/test-patch-report-654b33a.log
+
+2. 查看补丁内容
+3. 把补丁改动文件和补丁描述拉取出来(制作CVE补丁才需要，如果只是内核补丁，可以跳过此步骤)
+./quilt_patch_manager_final.sh extract-files patch_manager_work/outputs/654b33ada4ab5e926cd9c570196fefa7bec7c1df.patch
+
+eg:
+$ ./quilt_patch_manager_final.sh extract-files patch_manager_work/outputs/654b33ada4ab5e926cd9c570196fefa7bec7c1df.patch
+[INFO] 工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work
+[INFO] 提取 'patch_manager_work/outputs/654b33ada4ab5e926cd9c570196fefa7bec7c1df.patch' 涉及的文件列表...
+[SUCCESS] 找到 4 个文件，已保存到: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work/outputs/patch_files.txt
+$ 
+$ ^C
+$ ./quilt_patch_manager_final.sh extract-metadata patch_manager_work/outputs/654b33ada4ab5e926cd9c570196fefa7bec7c1df.patch
+[INFO] 工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work
+[INFO] 提取 'patch_manager_work/outputs/654b33ada4ab5e926cd9c570196fefa7bec7c1df.patch' 的元数据 (仅供查阅)...
+[WARNING] 输入为本地补丁文件，它可能不包含标准的元数据头。
+[SUCCESS] 元数据已保存到: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work/outputs/patch_metadata.txt
+
+4. 修改全局配置文件
+default_workspace_dir=/home/zhangbh/CVE/test/test-kernel/xxx/build_dir/linux-imx6ul_imx6_pax/linux-4.1.15
+先编译kernel_snapshot_tool,进入执行make
+
+接下来两种情况
+情况1：
+已经明确要改什么文件了，只是还不确定具体要改文件里的什么内容，可以不用创建快照，直接走quilt命令制作补丁流程即可。
+5. 开始制作补丁，创建补丁空文件
+./quilt_patch_manager_final.sh create-patch my.patch
+
+查看当前状态
+$ ./quilt_patch_manager_final.sh status
+[INFO] 工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work
+[INFO] 📊 Quilt 补丁状态：
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  📦 补丁总数: 585
+  ✅ 已应用: 585
+  ❌ 未应用: 0
+  🔝 顶部补丁: patches/my.patch
+
+
+6. 执行add命令，把修改文件列表传递给add,修改代码前必须要先执行这个，目的是让quilt系统来跟踪文件
+./quilt_patch_manager_final.sh add-files patch_manager_work/outputs/patch_files.txt
+
+查看当前要制作的补丁关联的文件
+$ ./quilt_patch_manager_final.sh files
+[INFO] 工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work
+fs/proc/generic.c
+fs/proc/inode.c
+fs/proc/internal.h
+include/linux/proc_fs.h
+
+接下来修改代码
+...
+...
+...
+
+
+7. refresh生成内核补丁，这个是纯净的补丁(这是制作内核补丁的步骤，如果是cve补丁，也可以直接跳过此命令，使用refresh-with-header直接生成cve补丁)
+$ ./quilt_patch_manager_final.sh refresh
+[INFO] 工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work
+[INFO] 🔄 [标准] 刷新补丁...
+Refreshed patch patches/my.patch
+[SUCCESS] ✅ 补丁刷新成功
+[SUCCESS] 📄 最终补丁已拷贝到: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work/outputs/my.patch
+
+8. with header生成cve补丁
+$ ./quilt_patch_manager_final.sh refresh-with-header
+[INFO] 工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work
+[INFO] 发现默认元数据文件，将使用: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work/outputs/patch_metadata.txt
+[INFO] 🔄 [核心] 刷新补丁并尝试从 '/home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work/outputs/patch_metadata.txt' 注入元数据...
+[INFO] 当前补丁: patches/my.patch
+[INFO] 使用预提取的元数据文件: patch_metadata.txt
+[INFO] 元数据头已提取, 正在生成纯代码 diff...
+Patch patches/my.patch is unchanged
+[INFO] 正在将元数据注入补丁...
+[SUCCESS] 🎉 补丁已成功生成: patches/my.patch
+[SUCCESS] 📄 最终补丁已拷贝到: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work/outputs/my.patch
+
+这个文件即为最终的cve带原始作者信息的内核补丁
+patch_manager_work/outputs/my.patch
+
+情况二：
+出现补丁冲突，并且修改的文件数量和补丁里面修改的不同，一般出现于原始下载补丁和当前修改补丁内核版本不同的情况
+5. 创建快照
+会按照全局配置文件kernel_snapshot_tool/.kernel_snapshot.conf里的内容去创建快照
+./quilt_patch_manager_final.sh snapshot-create
+
+查看当前快照状态
+./quilt_patch_manager_final.sh snapshot-status
+$ ./quilt_patch_manager_final.sh snapshot-status
+[INFO] 工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work
+[INFO] 🔍 使用 kernel_snapshot_tool 检查快照状态...
+📖 读取全局配置文件: /home/zhangbh/CVE/test/test-kernel/xxx/kernel_snapshot_tool/.kernel_snapshot.conf
+🎯 使用配置文件中的工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/build_dir/linux-imx6ul_imx6_pax/linux-4.1.15
+🔍 检查工作区状态 (基于基线快照)
+🚀 Git风格快速状态检查 (使用索引缓存)...
+✅ 索引载入完成，包含 37739 个文件
+🔍 开始快速扫描...
+
+🔍 差异分析报告:
+================
+
+✅ 没有变更
+
+📊 状态检查完成!
+================
+🧮 哈希计算: 0 (仅 0.0% 的文件)
+
+📈 变更统计:
+  🆕 新增文件: 0
+  ✏️  修改文件: 0
+  🗑️  删除文件: 0
+  ✅ 未变更: 37739
+  📊 总变更: 0
+
+⚡ 性能优化:
+  快速检测: 100.0% 的文件无需计算哈希
+  算法效率: 类似 Git status
+
+6.修改代码
+...
+...
+...
+
+查看状态
+$ ./quilt_patch_manager_final.sh snapshot-status
+[INFO] 工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work
+[INFO] 🔍 使用 kernel_snapshot_tool 检查快照状态...
+📖 读取全局配置文件: /home/zhangbh/CVE/test/test-kernel/xxx/kernel_snapshot_tool/.kernel_snapshot.conf
+🎯 使用配置文件中的工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/build_dir/linux-imx6ul_imx6_pax/linux-4.1.15
+🔍 检查工作区状态 (基于基线快照)
+🚀 Git风格快速状态检查 (使用索引缓存)...
+✅ 索引载入完成，包含 37739 个文件
+🔍 开始快速扫描...
+
+🔍 差异分析报告:
+================
+
+📝 修改的文件:
+M	init/main.c
+
+🆕 新增的文件:
+A	a.c
+
+📊 状态检查完成!
+================
+🧮 哈希计算: 1 (仅 0.0% 的文件)
+
+📈 变更统计:
+  🆕 新增文件: 1
+  ✏️  修改文件: 1
+  🗑️  删除文件: 0
+  ✅ 未变更: 37738
+  📊 总变更: 2
+
+⚡ 性能优化:
+  快速检测: 100.0% 的文件无需计算哈希
+  算法效率: 类似 Git status
+
+
+7. 列出变更文件列表，用来这个命令使用./quilt_patch_manager_final.sh add-files patch_manager_work/changed_files.txt
+$ ./quilt_patch_manager_final.sh snapshot-list-changes
+[INFO] 工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work
+[INFO] 📝 使用 kernel_snapshot_tool 列出所有变更文件...
+a.c
+init/main.c
+[INFO] 💾 变更文件列表已保存到: patch_manager_work/changed_files.txt
+
+8. 生成修改代码的目录树，为制作补丁的流程使用
+$ ./quilt_patch_manager_final.sh export-changed-files
+[INFO] 工作目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work
+[INFO] 🚀 开始导出变更文件到输出目录...
+[INFO] ✅ 已复制: a.c
+[INFO] ✅ 已复制: init/main.c
+[SUCCESS] 🎉 变更文件导出完成！
+[INFO] 📁 导出根目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work/outputs/changed_files
+[INFO] 📁 内核文件目录: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work/outputs/changed_files/linux-4.1.15
+[INFO] 📊 统计: 成功 2/2 个文件
+[INFO] 📄 索引文件: /home/zhangbh/CVE/test/test-kernel/xxx/patch_manager_work/outputs/changed_files/EXPORT_INDEX.txt
+
+查看目录结构
+$ tree patch_manager_work/outputs/changed_files
+patch_manager_work/outputs/changed_files
+├── EXPORT_INDEX.txt
+└── linux-4.1.15
+    ├── a.c
+    └── init
+        └── main.c
+
+2 directories, 3 files
+
+9.在openwrt根目录下
+make distclean
+cp configs/xx .config
+make menuconfig
+make V=s target/linux/prepare
+
+7. 开始制作补丁，创建补丁空文件，接下来的步骤可以看之前的制作补丁的流程了。
