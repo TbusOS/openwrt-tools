@@ -4,7 +4,7 @@ OpenWrt 内核补丁管理工具 - 技术手册
 
 :Author: OpenWrt 社区
 :Date: |today|
-:Version: 8.3.0
+:Version: 8.4.0
 
 概述
 ====
@@ -15,8 +15,16 @@ OpenWrt 内核补丁管理工具是一个为 OpenWrt 开发环境设计的综合
 1. **kernel_snapshot_tool** - 高精度文件变更检测工具
 2. **quilt_patch_manager_final.sh** - 集成化补丁管理脚本
 
-这些工具提供类 Git 的文件变更跟踪功能、自动化补丁创建、CVE 漏洞分析，
-以及与 quilt 补丁管理系统的无缝集成。
+v8.4.0 版本在 v8.3 基础上新增了**基于文件列表的导出功能**，提供了更灵活的文件管理系统：
+
+**新增特性 (v8.4.0)**：
+- **文件列表导出**：新增 ``export-from-file`` 命令，支持基于指定文件列表导出文件
+- **全局配置集成**：自动读取全局配置文件中的 ``default_workspace_dir`` 作为根目录
+- **会话管理系统**：每次导出创建独立的时间戳会话目录
+- **注释支持**：文件列表支持注释行和空行，提高可维护性
+
+这些工具提供类 Git 的文件变更跟踪功能、自动化补丁创建、CVE 漏洞分析、
+文件列表导出以及与 quilt 补丁管理系统的无缝集成。
 
 架构设计
 ========
@@ -140,6 +148,57 @@ kernel_snapshot_tool 实现了一个受 Git 启发的架构，具有以下关键
    - 导出完整变更集，保持目录结构
    - 生成 quilt 兼容的文件列表
    - 为复杂补丁保留文件关系
+
+基于文件列表的导出工作流 (v8.4.0 新增)
+--------------------------------------
+
+1. **文件列表准备**::
+
+    # 创建文件列表
+    cat > target_files.txt << EOF
+    # 内核核心文件
+    Makefile
+    kernel/sched/core.c
+    include/linux/sched.h
+    drivers/net/ethernet/intel/e1000/e1000_main.c
+    
+    # 注释行和空行会被自动忽略
+    fs/ext4/file.c
+    mm/memory.c
+    EOF
+
+2. **文件导出执行**::
+
+    ./quilt_patch_manager_final.sh export-from-file target_files.txt
+
+   - 自动读取全局配置中的 ``default_workspace_dir``
+   - 按原始相对路径结构导出文件
+   - 创建带时间戳的独立会话目录
+
+3. **导出结果分析**::
+
+    # 导出目录结构
+    patch_manager_work/outputs/exported_files/
+    ├── export_20250113_153045/        # 时间戳会话目录
+    │   ├── kernel_dir_name/           # 内核文件目录
+    │   │   ├── Makefile
+    │   │   ├── kernel/sched/core.c
+    │   │   └── include/linux/sched.h
+    │   ├── EXPORT_INDEX.txt           # 详细导出报告
+    │   └── successful_files.txt       # 成功文件列表
+    └── latest -> export_20250113_153045  # 最新导出软链接
+
+   - ``EXPORT_INDEX.txt`` 包含完整的导出统计和失败原因
+   - ``successful_files.txt`` 便于后续批处理使用
+   - ``latest`` 软链接提供快速访问最新导出结果
+
+**技术特性**：
+
+- **全局配置集成**：自动读取 ``.kernel_snapshot.conf`` 中的 ``default_workspace_dir``
+- **注释支持**：文件列表支持 ``#`` 注释行，提高可读性和维护性
+- **错误处理**：优雅处理不存在的文件，提供详细的失败原因和建议
+- **会话管理**：按时间戳创建独立导出会话，避免覆盖历史数据
+- **目录结构保持**：完整保持原始相对路径，确保文件组织关系不变
 
 命令参考
 ========

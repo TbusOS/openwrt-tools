@@ -1,6 +1,27 @@
-# OpenWrt Kernel Patch Management Tool v8.1.0
+# OpenWrt Kernel Patch Management Tool v8.4.0
 
-A **hybrid architecture high-performance patch management platform** designed specifically for OpenWrt developers. v8.1 builds on v8.0 with **Smart Configuration Integration** and **Enhanced Error Handling** features.
+A **hybrid architecture high-performance patch management platform** designed specifically for OpenWrt developers. v8.4 builds on v8.3 with **File List Export Functionality** and **Flexible File Management System**.
+
+## 🚀 v8.4.0 File List Export Enhancement Version
+
+- **📋 File List Export Feature**: New `export-from-file` command supports exporting files based on specified file lists
+- **🎯 Global Configuration Integration**: Automatically reads `default_workspace_dir` from global configuration files as root directory
+- **📁 Directory Structure Preservation**: Completely maintains original relative path directory structure
+- **📊 Detailed Export Reports**: Generates complete index files and successful file lists with failure reason tracking
+- **🔄 Session Management**: Creates independent timestamped session directories for each export with latest export soft links
+- **💬 Comment Support**: File lists support comment lines and blank lines for improved readability and maintainability
+- **⚡ Error Handling**: Gracefully handles non-existent files with detailed failure reasons and suggestions
+- **🔗 Backward Compatibility**: Maintains all v8.3 features with full backward compatibility
+
+## 🚀 v8.3.0 URL Link Support Version
+
+- **🌐 URL Link Support**: Complete support for HTTPS/HTTP URLs, allowing direct use of URLs as patch input
+- **📥 Smart Download Feature**: Automatic URL patch download to local cache with resume support and cache reuse
+- **🎯 Unified Input Interface**: fetch, save, test-patch commands unified support for commit-id, local files, and URL input methods
+- **🔗 URL Hash Caching**: Use URL hash values to generate cache filenames, avoiding special character issues
+- **📦 Changed Files Export**: Inherits export-changed-files functionality to export all changed files while maintaining original directory structure
+- **🔧 Smart Configuration Integration**: Inherits smart reading of kernel_snapshot_tool global configuration files
+- **🔄 Backward Compatibility**: Maintains all v8.0 features with full backward compatibility
 
 ## 🚀 v8.1.0 Enhanced Configuration Integration Version
 

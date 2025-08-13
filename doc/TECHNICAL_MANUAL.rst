@@ -4,7 +4,7 @@ OpenWrt Kernel Patch Management Tools - Technical Manual
 
 :Author: OpenWrt Community
 :Date: |today|
-:Version: 8.3.0
+:Version: 8.4.0
 
 Overview
 ========
@@ -16,9 +16,17 @@ consists of two main components:
 1. **kernel_snapshot_tool** - High-precision file change detection tool
 2. **quilt_patch_manager_final.sh** - Integrated patch management script
 
+v8.4.0 builds on v8.3 with **File List Export Functionality**, providing a more flexible file management system:
+
+**New Features (v8.4.0)**:
+- **File List Export**: New ``export-from-file`` command supports exporting files based on specified file lists
+- **Global Configuration Integration**: Automatically reads ``default_workspace_dir`` from global configuration files as root directory
+- **Session Management System**: Creates independent timestamped session directories for each export
+- **Comment Support**: File lists support comment lines and blank lines for improved maintainability
+
 These tools provide Git-like functionality for tracking file changes, 
-automated patch creation, CVE vulnerability analysis, and seamless 
-integration with the quilt patch management system.
+automated patch creation, CVE vulnerability analysis, file list export,
+and seamless integration with the quilt patch management system.
 
 Architecture
 ============
@@ -143,6 +151,57 @@ Snapshot-Based Workflow
    - Exports complete change set maintaining directory structure
    - Generates quilt-compatible file lists
    - Preserves file relationships for complex patches
+
+File List Export Workflow (v8.4.0 New)
+----------------------------------------
+
+1. **File List Preparation**::
+
+    # Create file list
+    cat > target_files.txt << EOF
+    # Kernel core files
+    Makefile
+    kernel/sched/core.c
+    include/linux/sched.h
+    drivers/net/ethernet/intel/e1000/e1000_main.c
+    
+    # Comment lines and blank lines are automatically ignored
+    fs/ext4/file.c
+    mm/memory.c
+    EOF
+
+2. **File Export Execution**::
+
+    ./quilt_patch_manager_final.sh export-from-file target_files.txt
+
+   - Automatically reads ``default_workspace_dir`` from global configuration
+   - Exports files maintaining original relative path structure
+   - Creates independent timestamped session directories
+
+3. **Export Result Analysis**::
+
+    # Export directory structure
+    patch_manager_work/outputs/exported_files/
+    ├── export_20250113_153045/        # Timestamped session directory
+    │   ├── kernel_dir_name/           # Kernel files directory
+    │   │   ├── Makefile
+    │   │   ├── kernel/sched/core.c
+    │   │   └── include/linux/sched.h
+    │   ├── EXPORT_INDEX.txt           # Detailed export report
+    │   └── successful_files.txt       # Successful files list
+    └── latest -> export_20250113_153045  # Latest export soft link
+
+   - ``EXPORT_INDEX.txt`` contains complete export statistics and failure reasons
+   - ``successful_files.txt`` facilitates subsequent batch processing
+   - ``latest`` soft link provides quick access to the latest export result
+
+**Technical Features**:
+
+- **Global Configuration Integration**: Automatically reads ``default_workspace_dir`` from ``.kernel_snapshot.conf``
+- **Comment Support**: File lists support ``#`` comment lines for improved readability and maintainability
+- **Error Handling**: Gracefully handles non-existent files with detailed failure reasons and suggestions
+- **Session Management**: Creates independent timestamped export sessions to avoid overwriting historical data
+- **Directory Structure Preservation**: Completely maintains original relative paths, ensuring file organization relationships remain intact
 
 Command Reference
 =================

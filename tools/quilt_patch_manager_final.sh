@@ -27,7 +27,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
-VERSION="8.3.0"
+VERSION="8.4.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
@@ -129,7 +129,7 @@ print_help() {
     printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-modified" "仅列出修改文件。"
     printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-clean [force]" "清理快照数据 (force 参数跳过确认)。"
     printf "  ${PURPLE}%-26s${NC} %s\n" "export-changed-files" "【新功能】导出变更文件到输出目录，保持原目录结构。"
-
+    printf "  ${PURPLE}%-26s${NC} %s\n" "export-from-file <file>" "【新功能】基于指定文件列表导出文件，使用全局配置的default_workspace_dir作为根目录。"
 
     printf "\n${YELLOW}>> Quilt 状态查询 (自动查找内核目录)${NC}\n"
     printf "  ${CYAN}%-26s${NC} %s\n" "status" "显示补丁总体状态 (总数/已应用/未应用)。"
@@ -1538,6 +1538,193 @@ export_changed_files() {
     log_info "📄 索引文件: $index_file"
 }
 
+# 基于指定文件列表导出文件到输出目录，保持原目录结构
+export_from_file() {
+    local file_list_path="$1"
+    
+    if [[ -z "$file_list_path" ]]; then
+        log_error "❌ 用法: export-from-file <文件列表路径>"
+        log_info "💡 示例: ./quilt_patch_manager_final.sh export-from-file /path/to/file_list.txt"
+        return 1
+    fi
+    
+    # 验证文件列表文件是否存在
+    if [[ ! -f "$file_list_path" ]]; then
+        log_error "❌ 文件列表不存在: $file_list_path"
+        return 1
+    fi
+    
+    # 验证文件列表是否为空
+    if [[ ! -s "$file_list_path" ]]; then
+        log_warning "📝 文件列表为空，无需导出"
+        return 0
+    fi
+    
+    log_info "🚀 开始基于文件列表导出文件..."
+    log_info "📝 文件列表: $file_list_path"
+    
+    # 1. 获取全局配置中的default_workspace_dir
+    local config_file="$SCRIPT_DIR/kernel_snapshot_tool/.kernel_snapshot.conf"
+    local kernel_source_dir=""
+    
+    if [[ -f "$config_file" ]]; then
+        kernel_source_dir=$(grep "^default_workspace_dir=" "$config_file" | cut -d'=' -f2)
+        
+        if [[ -z "$kernel_source_dir" ]]; then
+            log_error "❌ 全局配置文件中的 default_workspace_dir 为空"
+            log_info "💡 配置文件: $config_file"
+            log_info "💡 请设置 default_workspace_dir=/path/to/your/kernel/source"
+            return 1
+        fi
+        
+        if [[ ! -d "$kernel_source_dir" ]]; then
+            log_error "❌ default_workspace_dir 指向的目录不存在: $kernel_source_dir"
+            log_info "💡 请检查配置文件: $config_file"
+            return 1
+        fi
+        
+        # 验证是否是有效的内核目录
+        if [[ ! -f "$kernel_source_dir/Makefile" ]] || ! grep -q "KERNELRELEASE" "$kernel_source_dir/Makefile" 2>/dev/null; then
+            log_warning "⚠️ 目录不是有效的内核源码目录，但继续执行"
+            log_warning "   目录: $kernel_source_dir"
+            log_warning "   原因: 缺少Makefile或KERNELRELEASE标识"
+        fi
+    else
+        log_error "❌ 未找到全局配置文件: $config_file"
+        log_info "💡 请确保kernel_snapshot_tool配置文件存在"
+        return 1
+    fi
+    
+    log_success "✅ 使用内核源码目录: $kernel_source_dir"
+    
+    # 2. 创建输出目录
+    local output_base_dir="$ORIGINAL_PWD/$OUTPUT_DIR/exported_files"
+    local timestamp=$(date "+%Y%m%d_%H%M%S")
+    local export_session_dir="$output_base_dir/export_$timestamp"
+    
+    rm -rf "$export_session_dir" 2>/dev/null || true
+    mkdir -p "$export_session_dir"
+    
+    # 3. 动态获取内核目录名（只取最后一级目录名）
+    local kernel_dir_name
+    kernel_dir_name=$(basename "$kernel_source_dir")
+    local kernel_output_dir="$export_session_dir/$kernel_dir_name"
+    
+    # 创建内核目录
+    mkdir -p "$kernel_output_dir"
+    
+    # 4. 按原目录结构复制文件
+    local file_count=0
+    local success_count=0
+    local failed_files=()
+    
+    while IFS= read -r relative_file_path; do
+        # 跳过空行和注释行
+        [[ -z "$relative_file_path" || "$relative_file_path" =~ ^[[:space:]]*# ]] && continue
+        
+        # 去除行首行尾空格
+        relative_file_path=$(echo "$relative_file_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [[ -z "$relative_file_path" ]] && continue
+        
+        file_count=$((file_count + 1))
+        
+        local src_file="$kernel_source_dir/$relative_file_path"
+        local dst_file="$kernel_output_dir/$relative_file_path"
+        local dst_dir=$(dirname "$dst_file")
+        
+        # 创建目标目录结构
+        if ! mkdir -p "$dst_dir"; then
+            log_warning "⚠️ 无法创建目录: $dst_dir"
+            failed_files+=("$relative_file_path (目录创建失败)")
+            continue
+        fi
+        
+        # 复制文件
+        if [[ -f "$src_file" ]]; then
+            if cp "$src_file" "$dst_file"; then
+                log_info "✅ 已复制: $relative_file_path"
+                success_count=$((success_count + 1))
+            else
+                log_warning "⚠️ 复制失败: $relative_file_path"
+                failed_files+=("$relative_file_path (复制失败)")
+            fi
+        else
+            log_warning "⚠️ 源文件不存在: $src_file"
+            failed_files+=("$relative_file_path (源文件不存在)")
+        fi
+    done < "$file_list_path"
+    
+    # 5. 创建详细的索引文件
+    local index_file="$export_session_dir/EXPORT_INDEX.txt"
+    {
+        echo "# 基于文件列表的导出索引"
+        echo "# 导出时间: $(date)"
+        echo "# 导出会话: export_$timestamp"
+        echo "# 文件列表: $file_list_path"
+        echo "# 内核源码目录: $kernel_source_dir"
+        echo "# 内核目录名: $kernel_dir_name"
+        echo "# 总文件数: $file_count"
+        echo "# 成功复制: $success_count"
+        echo "# 失败文件: $((file_count - success_count))"
+        echo ""
+        echo "# 导出结构:"
+        echo "# $export_session_dir/"
+        echo "#   ├── $kernel_dir_name/          <- 内核文件目录"
+        echo "#   │   ├── (导出的文件...)"
+        echo "#   └── EXPORT_INDEX.txt          <- 本文件"
+        echo ""
+        echo "# 成功导出的文件列表 (相对于 $kernel_dir_name/ 目录):"
+        while IFS= read -r relative_file_path; do
+            [[ -z "$relative_file_path" || "$relative_file_path" =~ ^[[:space:]]*# ]] && continue
+            relative_file_path=$(echo "$relative_file_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            [[ -z "$relative_file_path" ]] && continue
+            
+            if [[ -f "$kernel_output_dir/$relative_file_path" ]]; then
+                echo "$relative_file_path"
+            fi
+        done < "$file_list_path"
+        
+        if [[ ${#failed_files[@]} -gt 0 ]]; then
+            echo ""
+            echo "# 失败文件列表:"
+            for failed_file in "${failed_files[@]}"; do
+                echo "# $failed_file"
+            done
+        fi
+    } > "$index_file"
+    
+    # 6. 创建简化的成功文件列表（便于后续使用）
+    local success_files_list="$export_session_dir/successful_files.txt"
+    while IFS= read -r relative_file_path; do
+        [[ -z "$relative_file_path" || "$relative_file_path" =~ ^[[:space:]]*# ]] && continue
+        relative_file_path=$(echo "$relative_file_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [[ -z "$relative_file_path" ]] && continue
+        
+        if [[ -f "$kernel_output_dir/$relative_file_path" ]]; then
+            echo "$relative_file_path"
+        fi
+    done < "$file_list_path" > "$success_files_list"
+    
+    # 7. 显示结果
+    log_success "🎉 基于文件列表的导出完成！"
+    log_info "📁 导出会话目录: $export_session_dir"
+    log_info "📁 内核文件目录: $kernel_output_dir"
+    log_info "📊 统计: 成功 $success_count/$file_count 个文件"
+    log_info "📄 详细索引: $index_file"
+    log_info "📄 成功文件列表: $success_files_list"
+    
+    if [[ ${#failed_files[@]} -gt 0 ]]; then
+        log_warning "⚠️ 有 ${#failed_files[@]} 个文件导出失败，详情请查看索引文件"
+    fi
+    
+    # 8. 创建最新导出的软链接（便于快速访问）
+    local latest_link="$output_base_dir/latest"
+    rm -f "$latest_link" 2>/dev/null || true
+    ln -sf "export_$timestamp" "$latest_link"
+    log_info "🔗 最新导出链接: $latest_link"
+}
+
+
 # 清理快照数据 (基于 kernel_snapshot_tool)
 snapshot_clean() {
     local force_flag="$1"
@@ -1896,6 +2083,7 @@ main() {
         "snapshot-list-modified") snapshot_list_modified "$@";;
         "snapshot-clean") snapshot_clean "$@";;
         "export-changed-files") export_changed_files "$@";;
+        "export-from-file") export_from_file "$@";;
         "distclean") distclean_env "$@";;
         "clean") clean_work_dir "$@";;
         "reset-env") check_dependencies "need_quilt"; reset_env "$@";;
