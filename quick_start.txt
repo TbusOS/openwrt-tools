@@ -225,3 +225,43 @@ make menuconfig
 make V=s target/linux/prepare
 
 7. 开始制作补丁，创建补丁空文件，接下来的步骤可以看之前的制作补丁的流程了。
+
+情况3：
+补丁无冲突，直接应用补丁
+1)  cp configs/xx/imx6ul-prolin2-defconfig .config
+
+	make menuconfig 
+	make V=s target/linux/prepare
+
+2) 下载补丁
+./quilt_patch_manager_final.sh save https://github.com/torvalds/linux/commit/712f4aad406bb1ed67f3f98d04c044191f0ff593.patch CVE-2013-4312.patch
+
+验证补丁冲突情况
+./quilt_patch_manager_final.sh test-patch patch_manager_work/outputs/CVE-2013-4312.patch
+
+发现有补丁修改过文件，所以要将此补丁放到最后面
+cp patch_manager_work/outputs/CVE-2013-4312.patch z03-CVE-2013-4312.patch
+
+3) 将补丁内的文件列表导出
+./quilt_patch_manager_final.sh extract-files
+./quilt_patch_manager_final.sh extract-files z03-CVE-2013-4312.patch 
+
+tree atch_manager_work/
+cat patch_manager_work/outputs/patch_files.txt
+
+4) 根据文件列表制作未修改前的目录树
+./quilt_patch_manager_final.sh export-from-file patch_manager_work/outputs/patch_files.txt
+tree patch_manager_work/
+
+5) 应用新的内核补丁
+./quilt_patch_manager_final.sh quick-apply z03-CVE-2013-4312.patch
+./quilt_patch_manager_final.sh top
+
+7) 根据文件列表制作修改后的目录树
+./quilt_patch_manager_final.sh export-from-file patch_manager_work/outputs/patch_files.txt
+tree patch_manager_work/
+
+可以跟未修改前的目录树进行源码对比，查看情况是否修改正确
+
+8) 验证补丁冲突情况
+./quilt_patch_manager_final.sh test-patch patch_manager_work/outputs/CVE-2013-4312.patch

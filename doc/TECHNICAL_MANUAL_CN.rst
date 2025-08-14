@@ -4,7 +4,7 @@ OpenWrt 内核补丁管理工具 - 技术手册
 
 :Author: OpenWrt 社区
 :Date: |today|
-:Version: 8.4.0
+:Version: 8.5.0
 
 概述
 ====
@@ -358,6 +358,49 @@ quilt_patch_manager_final.sh 命令
 ``export-changed-files``
     导出所有变更文件，保持目录结构。
     为代码审查和共享创建有组织的备份。
+
+``export-from-file <file-list>``
+    基于指定文件列表导出文件，保持原目录结构。
+    
+    特性：
+      - 使用全局配置中的 default_workspace_dir 作为根目录
+      - 支持注释行（#）和空行
+      - 创建时间戳会话目录，避免覆盖
+      - 生成详细的导出索引和成功文件列表
+    
+    示例::
+    
+        # 创建文件列表
+        cat > files.txt << EOF
+        # 内核核心文件
+        Makefile
+        kernel/sched/core.c
+        include/linux/sched.h
+        EOF
+        
+        # 导出文件
+        ./quilt_patch_manager_final.sh export-from-file files.txt
+
+``snapshot-clean [force]``
+    清理快照数据和缓存。
+    
+    选项：
+      - 不使用 'force'：交互式确认清理
+      - 使用 'force'：静默强制清理
+
+**快速补丁应用**
+
+``quick-apply <patch-path>``
+    一键应用补丁到 OpenWrt 系统。
+    
+    执行步骤：
+      1. 复制补丁到目标架构的 patches 目录
+      2. 删除内核 .prepared 文件以触发重新准备
+      3. 执行 make V=s target/linux/prepare 应用所有补丁
+    
+    示例::
+    
+        ./quilt_patch_manager_final.sh quick-apply /path/to/fix.patch
 
 **Quilt 状态与控制**
 

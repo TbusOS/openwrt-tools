@@ -1,5 +1,5 @@
 #!/bin/bash
-# 版本: v8.1.0 (增强配置集成 - 全局配置文件智能读取与错误处理优化)
+# 版本: v8.5.0 (文件列表导出增强版本 - 新增基于文件列表的导出功能)
 
 # --- 全局变量与初始化 ---
 # 获取脚本所在目录的绝对路径，确保路径引用的健壮性
@@ -27,7 +27,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
-VERSION="8.4.0"
+VERSION="8.5.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
@@ -116,6 +116,9 @@ print_help() {
     printf "  ${CYAN}%-26s${NC} %s\n" "refresh" "【标准】刷新补丁, 生成纯代码 diff, 并拷贝到输出目录。"
     printf "  ${PURPLE}%-26s${NC} %s\n" "refresh-with-header <id|file>" "【核心】刷新并注入元数据, 生成最终补丁, 并拷贝到输出目录。"
     printf "  ${GREEN}%-26s${NC} %s\n" "auto-patch <id|file> <name>" "【全自动】执行完整流程 (test, create, add, refresh-with-header)。"
+
+    printf "\n${YELLOW}>> 快速补丁应用 (OpenWrt 专用)${NC}\n"
+    printf "  ${PURPLE}%-26s${NC} %s\n" "quick-apply <patch_path>" "【一键应用】复制补丁到目标目录，删除.prepare文件，执行make prepare。"
 
     printf "\n${YELLOW}>> 全局差异快照 (类 Git 功能, 可在任何目录运行)${NC}\n"
     printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-create [dir]" "为指定目录(默认当前)创建快照, 作为后续对比的基准。"
@@ -1093,6 +1096,129 @@ auto_patch() {
     quilt_refresh_with_header "$identifier"
     
     log_success "🎉 自动化流程完成!"
+}
+
+# 快速应用补丁到 OpenWrt (新增功能)
+quick_apply_patch() {
+    local patch_file_path="$1"
+    
+    # 参数验证
+    if [[ -z "$patch_file_path" ]]; then
+        log_error "请提供补丁文件的绝对路径"
+        log_info "用法: quick-apply <补丁文件绝对路径>"
+        log_info "示例: quick-apply /home/user/my-fix.patch"
+        return 1
+    fi
+    
+    # 检查补丁文件是否存在
+    if [[ ! -f "$patch_file_path" ]]; then
+        log_error "补丁文件不存在: $patch_file_path"
+        return 1
+    fi
+    
+    # 获取补丁文件名
+    local patch_filename=$(basename "$patch_file_path")
+    
+    log_info "🚀 开始快速应用补丁: $patch_filename"
+    log_info "📄 补丁文件: $patch_file_path"
+    
+    # 步骤 1: 查找 OpenWrt 补丁目录
+    log_info "  -> 步骤 1/3: 查找目标补丁目录..."
+    local patches_dir
+    patches_dir=$(find_openwrt_patches_dir)
+    if [[ $? -ne 0 ]]; then
+        log_error "无法找到 OpenWrt 补丁目录"
+        return 1
+    fi
+    
+    log_success "     找到补丁目录: $patches_dir"
+    
+    # 复制补丁文件
+    log_info "     复制补丁文件到目标目录..."
+    local target_patch_path="$patches_dir/$patch_filename"
+    
+    if cp "$patch_file_path" "$target_patch_path"; then
+        log_success "     ✅ 补丁已复制到: $target_patch_path"
+    else
+        log_error "     ❌ 补丁复制失败"
+        return 1
+    fi
+    
+    # 步骤 2: 删除 .prepare 文件
+    log_info "  -> 步骤 2/3: 删除内核 .prepared 文件以触发重新准备..."
+    local kernel_source_dir
+    kernel_source_dir=$(find_kernel_source)
+    
+    if [[ $? -ne 0 || -z "$kernel_source_dir" ]]; then
+        log_warning "     ⚠️  未找到已解压的内核源码目录"
+        log_info "     这是正常的，make prepare 会重新解压并应用所有补丁"
+    else
+        local prepare_file="$kernel_source_dir/.prepared"
+        if [[ -f "$prepare_file" ]]; then
+            if rm "$prepare_file"; then
+                log_success "     ✅ 已删除 .prepared 文件: $prepare_file"
+            else
+                log_warning "     ⚠️  删除 .prepared 文件失败，但不影响后续步骤"
+            fi
+        else
+            log_info "     💡 .prepare 文件不存在，无需删除"
+        fi
+    fi
+    
+    # 步骤 3: 执行 make target/linux/prepare
+    log_info "  -> 步骤 3/3: 执行 make V=s target/linux/prepare..."
+    log_info "     这将重新准备内核源码并应用所有补丁（包括新添加的补丁）"
+    
+    # 确保在 OpenWrt 根目录执行
+    local openwrt_root=""
+    local current_dir="$ORIGINAL_PWD"
+    
+    # 查找 OpenWrt 根目录
+    while [[ "$current_dir" != "/" ]]; do
+        if [[ -f "$current_dir/.config" && -d "$current_dir/target/linux" ]]; then
+            openwrt_root="$current_dir"
+            break
+        fi
+        current_dir=$(dirname "$current_dir")
+    done
+    
+    if [[ -z "$openwrt_root" ]]; then
+        log_error "     ❌ 无法找到 OpenWrt 根目录"
+        log_info "     💡 请在 OpenWrt 项目根目录下运行此命令"
+        return 1
+    fi
+    
+    log_info "     OpenWrt 根目录: $openwrt_root"
+    
+    # 执行 make 命令
+    (
+        cd "$openwrt_root" || exit 1
+        log_info "     执行命令: make V=s target/linux/prepare"
+        log_info "     请耐心等待，这可能需要几分钟时间..."
+        
+        if make V=s target/linux/prepare; then
+            log_success "     ✅ make target/linux/prepare 执行成功"
+        else
+            log_error "     ❌ make target/linux/prepare 执行失败"
+            log_info "     💡 请检查补丁是否有语法错误或冲突"
+            exit 1
+        fi
+    )
+    
+    if [[ $? -eq 0 ]]; then
+        log_success "🎉 补丁快速应用完成！"
+        log_info "📋 执行总结:"
+        log_info "   • 补丁文件: $patch_filename"
+        log_info "   • 目标位置: $target_patch_path" 
+        log_info "   • 内核已重新准备，新补丁已生效"
+        log_info ""
+        log_info "💡 后续建议:"
+        log_info "   • 使用 'test-patch' 命令验证补丁应用情况"
+        log_info "   • 继续编译: make V=s 或 make -j$(nproc)"
+    else
+        log_error "❌ 补丁应用过程中出现错误"
+        return 1
+    fi
 }
 
     # --- 方案 C: 基于文件哈希的全局差异检测功能 ---
@@ -2075,6 +2201,7 @@ main() {
         "refresh") check_dependencies "need_quilt"; quilt_refresh "$@";;
         "refresh-with-header") check_dependencies "need_quilt"; quilt_refresh_with_header "$@";;
         "auto-patch") check_dependencies "need_quilt"; auto_patch "$@";;
+        "quick-apply") quick_apply_patch "$@";;
         "snapshot-create") snapshot_create "$@";;
         "snapshot-diff") snapshot_diff "$@";;
         "snapshot-status") snapshot_status "$@";;
@@ -2102,3 +2229,4 @@ main() {
 
 # 运行主函数
 main "$@"
+

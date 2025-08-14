@@ -1,6 +1,14 @@
-# OpenWrt Kernel Patch Management Tool v8.4.0
+# OpenWrt Kernel Patch Management Tool v8.5.0
 
-A **hybrid architecture high-performance patch management platform** designed specifically for OpenWrt developers. v8.4 builds on v8.3 with **File List Export Functionality** and **Flexible File Management System**.
+A **hybrid architecture high-performance patch management platform** designed specifically for OpenWrt developers. v8.5 builds on v8.4 with **Version Synchronization Update** and **Documentation Enhancement**.
+
+## 🚀 v8.5.0 Version Synchronization Update
+
+- **🔢 Version Number Synchronization**: Unified script version number update to v8.5.0, ensuring version consistency
+- **📝 Documentation Enhancement**: Added detailed usage scenarios for "Case 3: Patch without conflicts, direct application" in quick start guide
+- **🛠️ Workflow Optimization**: Improved quick application process documentation for conflict-free patches
+- **📚 Technical Manual Updates**: Added missing command documentation for `quick-apply`, `snapshot-clean`, `export-from-file` etc.
+- **🔧 Feature Preservation**: Maintains all v8.4 feature characteristics unchanged, pure version number synchronization update
 
 ## 🚀 v8.4.0 File List Export Enhancement Version
 

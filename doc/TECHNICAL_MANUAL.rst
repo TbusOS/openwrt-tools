@@ -4,7 +4,7 @@ OpenWrt Kernel Patch Management Tools - Technical Manual
 
 :Author: OpenWrt Community
 :Date: |today|
-:Version: 8.4.0
+:Version: 8.5.0
 
 Overview
 ========
@@ -362,6 +362,49 @@ quilt_patch_manager_final.sh Commands
 ``export-changed-files``
     Export all changed files maintaining directory structure.
     Creates organized backup for code review and sharing.
+
+``export-from-file <file-list>``
+    Export files based on specified file list, maintaining original directory structure.
+    
+    Features:
+      - Uses default_workspace_dir from global configuration as root directory
+      - Supports comment lines (#) and blank lines
+      - Creates timestamped session directories to avoid overwriting
+      - Generates detailed export index and successful file lists
+    
+    Example::
+    
+        # Create file list
+        cat > files.txt << EOF
+        # Kernel core files
+        Makefile
+        kernel/sched/core.c
+        include/linux/sched.h
+        EOF
+        
+        # Export files
+        ./quilt_patch_manager_final.sh export-from-file files.txt
+
+``snapshot-clean [force]``
+    Clean snapshot data and cache.
+    
+    Options:
+      - Without 'force': Interactive confirmation cleanup
+      - With 'force': Silent force cleanup
+
+**Quick Patch Application**
+
+``quick-apply <patch-path>``
+    One-click patch application to OpenWrt system.
+    
+    Execution steps:
+      1. Copy patch to target architecture's patches directory
+      2. Remove kernel .prepared file to trigger re-preparation
+      3. Execute make V=s target/linux/prepare to apply all patches
+    
+    Example::
+    
+        ./quilt_patch_manager_final.sh quick-apply /path/to/fix.patch
 
 **Quilt Status & Control**
 

@@ -4,6 +4,20 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [8.5.0] - 2025-01-13
+
+### 🔄 版本同步更新 (Version Synchronization Update)
+
+#### 改进功能 (Improved)
+- 🔢 **版本号同步**: 将脚本版本号统一更新到 v8.5.0，确保版本一致性
+- 📝 **文档完善**: 在快速开始指南中新增"情况3：补丁无冲突，直接应用补丁"的详细使用场景
+- 🛠️ **工作流优化**: 完善了无冲突补丁的快速应用流程说明
+
+#### 技术细节 (Technical Details)
+- 更新脚本头部版本标识从 v8.4.0 到 v8.5.0
+- 更新内部 VERSION 变量从 "8.4.0" 到 "8.5.0"
+- 保持所有功能特性不变，纯版本号同步更新
+
 ## [8.4.0] - 2025-01-13
 
 ### 📋 文件列表导出增强版本 (File List Export Enhancement Version)
