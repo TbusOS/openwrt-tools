@@ -1,6 +1,17 @@
-# OpenWrt Kernel Patch Management Tool v8.5.0
+# OpenWrt Kernel Patch Management Tool v8.6.0
 
-A **hybrid architecture high-performance patch management platform** designed specifically for OpenWrt developers. v8.5 builds on v8.4 with **Version Synchronization Update** and **Documentation Enhancement**.
+A **hybrid architecture high-performance patch management platform** designed specifically for OpenWrt developers. v8.6 builds on v8.5 with **Version Incremental Update**.
+
+## 🚀 v8.6.0 New Commands Feature Version
+
+- **🚀 quick-apply Command**: Added one-click patch application feature, automatically copies patches to target directory and executes make prepare
+- **🧹 snapshot-clean Command**: Added snapshot data cleanup command, supports interactive and force cleanup modes
+- **📊 graph Command**: Added patch dependency graph generation feature, outputs DOT format for Graphviz visualization
+- **🎨 graph-pdf Command**: Added PDF dependency graph generation feature, supports color and full display options
+- **📚 Command Documentation Enhancement**: Provided complete usage instructions and examples for new commands
+- **🔢 Version Number Update**: Updated script version to v8.6.0
+- **📝 Technical Manual Enhancement**: Added missing command documentation in Chinese and English technical manuals
+- **🛠️ Workflow Optimization**: Improved complete process documentation for quick patch application
 
 ## 🚀 v8.5.0 Version Synchronization Update
 
@@ -54,7 +65,7 @@ A **hybrid architecture high-performance patch management platform** designed sp
 - **🔧 Architectural Robustness**: Code grown to 1202 lines, achieving hybrid architecture high-performance stable version
 - **🔄 Backward Compatibility**: Maintains all v7.0 intelligent analysis and Quilt management features
 
-## 📁 Project Structure
+## �� Project Structure
 
 ```
 openwrt-tools/

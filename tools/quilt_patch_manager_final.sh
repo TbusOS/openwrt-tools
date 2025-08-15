@@ -1,5 +1,5 @@
 #!/bin/bash
-# 版本: v8.5.0 (文件列表导出增强版本 - 新增基于文件列表的导出功能)
+# 版本: v8.6.0 (文件列表导出增强版本 - 新增基于文件列表的导出功能)
 
 # --- 全局变量与初始化 ---
 # 获取脚本所在目录的绝对路径，确保路径引用的健壮性
@@ -27,7 +27,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
-VERSION="8.5.0"
+VERSION="8.6.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
@@ -142,6 +142,16 @@ print_help() {
     printf "  ${CYAN}%-26s${NC} %s\n" "unapplied" "仅列出所有未应用的补丁。"
     printf "  ${CYAN}%-26s${NC} %s\n" "files" "列出当前补丁所包含的所有文件。"
     printf "  ${CYAN}%-26s${NC} %s\n" "diff" "显示当前补丁的 diff 内容。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "graph [patch]" "生成补丁依赖关系图 (DOT格式)，可用 Graphviz 可视化。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "graph-pdf [--color] [--all] [patch] [file]" "生成PDF依赖图。--all显示所有补丁(即使无依赖)。"
+
+    printf "\n${YELLOW}>> 快照文件列表命令 (基于 kernel_snapshot_tool)${NC}\n"
+    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-changes" "列出所有变更文件 (新增+修改), 适合生成 quilt 文件列表。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-new" "仅列出新增文件。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-modified" "仅列出修改文件。"
+    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-clean [force]" "清理快照数据 (force 参数跳过确认)。"
+    printf "  ${PURPLE}%-26s${NC} %s\n" "export-changed-files" "【新功能】导出变更文件到输出目录，保持原目录结构。"
+    printf "  ${PURPLE}%-26s${NC} %s\n" "export-from-file <file>" "【新功能】基于指定文件列表导出文件，使用全局配置的default_workspace_dir作为根目录。"
 
     printf "\n${YELLOW}>> Quilt 队列操作 (自动查找内核目录)${NC}\n"
     printf "  ${CYAN}%-26s${NC} %s\n" "push" "应用下一个未应用的补丁。"
@@ -2181,6 +2191,282 @@ run_quilt_command() {
     ( cd "$kernel_source_dir" || exit 1; quilt "$quilt_cmd" "$@"; )
 }
 
+# quilt graph 的专用执行器 (确保输出纯净的 DOT 格式)
+run_quilt_graph() {
+    local kernel_source_dir
+    kernel_source_dir=$(find_kernel_source_enhanced "quilt graph") || { log_error "未找到内核源码目录"; return 1; }
+    
+    # 禁用颜色输出，确保生成纯净的 DOT 格式
+    ( 
+        cd "$kernel_source_dir" || exit 1
+        # 设置环境变量禁用颜色输出
+        export NO_COLOR=1
+        export TERM=dumb
+        # 执行 quilt graph 并移除任何可能的 ANSI 代码
+        quilt graph "$@" | sed 's/\x1b\[[0-9;]*m//g'
+    )
+}
+
+# quilt graph 的彩色版本执行器 (生成带颜色属性的 DOT 格式)
+run_quilt_graph_with_colors() {
+    local kernel_source_dir
+    kernel_source_dir=$(find_kernel_source_enhanced "quilt graph") || { log_error "未找到内核源码目录"; return 1; }
+    
+    # 过滤掉 --color 参数，只保留其他参数传给 quilt graph
+    local quilt_args=()
+    for arg in "$@"; do
+        if [[ "$arg" != "--color" ]]; then
+            quilt_args+=("$arg")
+        fi
+    done
+    
+    ( 
+        cd "$kernel_source_dir" || exit 1
+        
+        # 获取基本的 DOT 输出
+        export NO_COLOR=1
+        export TERM=dumb
+        local base_dot
+        base_dot=$(quilt graph "${quilt_args[@]}" | sed 's/\x1b\[[0-9;]*m//g')
+        
+        # 获取已应用和未应用的补丁列表
+        local applied_patches
+        local unapplied_patches
+        applied_patches=$(quilt applied 2>/dev/null || true)
+        unapplied_patches=$(quilt unapplied 2>/dev/null || true)
+        
+        # 处理 DOT 输出，添加颜色属性
+        echo "$base_dot" | awk -v applied="$applied_patches" -v unapplied="$unapplied_patches" '
+        BEGIN {
+            # 将已应用补丁列表转换为哈希表 (map)
+            n_applied = split(applied, applied_arr, "\n");
+            for (i = 1; i <= n_applied; i++) {
+                if (applied_arr[i] != "") {
+                    patch_name = applied_arr[i];
+                    # 移除 quilt 输出中固有的 "patches/" 前缀
+                    gsub(/^patches\//, "", patch_name);
+                    applied_map[patch_name] = 1;
+                }
+            }
+
+            # 将未应用补丁列表转换为哈希表 (map)
+            n_unapplied = split(unapplied, unapplied_arr, "\n");
+            for (i = 1; i <= n_unapplied; i++) {
+                if (unapplied_arr[i] != "") {
+                    patch_name = unapplied_arr[i];
+                    gsub(/^patches\//, "", patch_name);
+                    unapplied_map[patch_name] = 1;
+                }
+            }
+        }
+        {
+            # 只处理定义节点的行, e.g., n62 [label="platform/CVE-2020-12826.patch"];
+            if ($0 ~ /n[0-9]+ \[.*label=/) {
+                # 从 label="<patch_name>" 中提取出 <patch_name>
+                if (match($0, /label="([^"]*)"/, arr)) {
+                    patch_label = arr[1];
+
+                    # 移除节点定义中所有可能存在的旧样式属性
+                    gsub(/,style=[^,\]]*/, "", $0);
+                    gsub(/,fillcolor=[^,\]]*/, "", $0);
+                    gsub(/,color=[^,\]]*/, "", $0);
+                    gsub(/,fontcolor=[^,\]]*/, "", $0);
+                    gsub(/style=[^,\]]*/, "", $0);
+                    # 关键修复：清理可能由gsub留下的 "[," 或 ",,"
+                    gsub(/\[,/, "[", $0);
+                    gsub(/,,/, ",", $0);
+
+                    # 根据补丁状态，构建新的样式字符串
+                    new_style = "";
+                    if (patch_label in applied_map) {
+                        # 绿色: 已应用
+                        new_style = "style=filled,fillcolor=lightgreen,color=darkgreen,fontcolor=black";
+                    } else if (patch_label in unapplied_map) {
+                        # 红色: 未应用
+                        new_style = "style=filled,fillcolor=lightcoral,color=darkred,fontcolor=white";
+                    } else {
+                        # 灰色: 未知 (e.g., a generic patch)
+                        new_style = "style=filled,fillcolor=lightgray,color=gray,fontcolor=black";
+                    }
+
+                    # 将新样式插入到 ] 前面
+                    gsub(/\];$/, "," new_style "];", $0);
+                }
+            }
+            # 打印处理后（或未处理）的行
+            print $0;
+        }'
+    )
+}
+
+# 生成补丁依赖关系图的PDF文件
+generate_patch_graph_pdf() {
+    # 使用更健壮的方式解析参数，支持 --color 和 --all 标志在任意位置
+    local patch_name=""
+    local output_file=""
+    local use_colors=false
+    local show_all=false
+    local quilt_args=()
+    local other_args=()
+
+    for arg in "$@"; do
+        case "$arg" in
+            --color)
+                use_colors=true
+                ;;
+            --all)
+                show_all=true
+                quilt_args+=("--all")
+                ;;
+            *)
+                # 将非标志参数收集起来
+                other_args+=("$arg")
+                ;;
+        esac
+    done
+
+    # 从非标志参数中确定 patch_name 和 output_file
+    # 假设第一个是 patch_name, 第二个是 output_file (如果存在)
+    if [[ ${#other_args[@]} -gt 0 ]]; then
+        patch_name="${other_args[0]}"
+        quilt_args+=("$patch_name")
+    fi
+    if [[ ${#other_args[@]} -gt 1 ]]; then
+        output_file="${other_args[1]}"
+    fi
+
+    # 检查是否安装了 graphviz
+    if ! command -v dot &> /dev/null; then
+        log_error "未找到 'dot' 命令，请安装 Graphviz："
+        log_info "  Ubuntu/Debian: sudo apt install graphviz"
+        log_info "  CentOS/RHEL:   sudo yum install graphviz"
+        log_info "  macOS:         brew install graphviz"
+        return 1
+    fi
+    
+    # 确保输出目录存在
+    mkdir -p "$ORIGINAL_PWD/$OUTPUT_DIR"
+
+    # 设置默认输出文件名（保存到 patch_manager_work/outputs 目录）
+    if [[ -z "$output_file" ]]; then
+        local color_suffix=""
+        [[ "$use_colors" == true ]] && color_suffix="_colored"
+        local all_suffix=""
+        [[ "$show_all" == true ]] && all_suffix="_all"
+        
+        if [[ -n "$patch_name" ]]; then
+            # 将补丁名称中的斜杠替换为下划线，避免路径问题
+            local safe_patch_name="${patch_name//\//_}"
+            safe_patch_name="${safe_patch_name%.*}"  # 移除扩展名
+            output_file="$ORIGINAL_PWD/$OUTPUT_DIR/patch_graph_${safe_patch_name}${color_suffix}${all_suffix}"
+        else
+            output_file="$ORIGINAL_PWD/$OUTPUT_DIR/patches_graph${color_suffix}${all_suffix}"
+        fi
+    else
+        # 如果用户指定了输出文件，也放到 patch_manager_work 目录下
+        # 如果用户提供的是绝对路径，则使用绝对路径；否则放到输出目录
+        if [[ "$output_file" == /* ]]; then
+            # 绝对路径，去掉扩展名
+            output_file="${output_file%.*}"
+        else
+            # 相对路径，放到输出目录，并处理可能的斜杠
+            local safe_output_file="${output_file//\//_}"
+            output_file="$ORIGINAL_PWD/$OUTPUT_DIR/${safe_output_file%.*}"
+        fi
+    fi
+    
+    # 设置DOT和PDF文件路径
+    local dot_file="${output_file}.dot"
+    local pdf_file="${output_file}.pdf"
+    
+    if [[ "$use_colors" == true ]]; then
+        log_info "🎨 正在生成彩色补丁依赖关系图..."
+        log_info "🎨 颜色说明: 🟢 已应用补丁 | 🔴 未应用补丁 | ⚪ 未知状态"
+    else
+        log_info "🎨 正在生成补丁依赖关系图..."
+    fi
+    [[ "$show_all" == true ]] && log_info "📊 显示模式: 所有补丁 (--all)"
+    log_info "📄 DOT 文件: $dot_file"
+    log_info "📄 PDF 文件: $pdf_file"
+    
+    # 第一步：生成 DOT 文件
+    log_info "📊 步骤 1/2: 生成 DOT 文件..."
+    
+    # 根据是否使用颜色选择不同的函数
+    if [[ "$use_colors" == true ]]; then
+        log_info "📊 正在分析补丁（彩色模式）..."
+        run_quilt_graph_with_colors "${quilt_args[@]}" > "$dot_file"
+    else
+        log_info "📊 正在分析补丁..."
+        run_quilt_graph "${quilt_args[@]}" > "$dot_file"
+    fi
+    
+    # 检查 DOT 文件是否生成成功
+    if [[ ! -s "$dot_file" ]]; then
+        log_error "❌ 生成 DOT 文件失败"
+        return 1
+    fi
+    
+    log_success "✅ DOT 文件生成成功: $dot_file"
+    
+    # 显示DOT文件内容的前几行用于调试
+    log_info "📝 DOT 文件内容预览:"
+    head -10 "$dot_file" | sed 's/^/   /'
+    
+    # 第二步：转换为 PDF
+    log_info "📊 步骤 2/2: 转换 DOT 为 PDF..."
+    
+    if dot -Tpdf "$dot_file" -o "$pdf_file" 2>/dev/null; then
+        if [[ "$use_colors" == true ]]; then
+            log_success "✅ 彩色 PDF 文件生成成功: $pdf_file"
+        else
+            log_success "✅ PDF 文件生成成功: $pdf_file"
+        fi
+        
+        # 显示文件信息
+        local dot_size pdf_size
+        dot_size=$(ls -lh "$dot_file" | awk '{print $5}')
+        pdf_size=$(ls -lh "$pdf_file" | awk '{print $5}')
+        log_info "📊 DOT 文件大小: $dot_size"
+        log_info "📊 PDF 文件大小: $pdf_size"
+        
+        # 显示相对于工作目录的路径
+        local relative_dot_path relative_pdf_path
+        relative_dot_path=$(echo "$dot_file" | sed "s|^$ORIGINAL_PWD/||")
+        relative_pdf_path=$(echo "$pdf_file" | sed "s|^$ORIGINAL_PWD/||")
+        log_info "🔗 DOT 相对路径: $relative_dot_path"
+        log_info "🔗 PDF 相对路径: $relative_pdf_path"
+        
+        # 如果可能的话，显示绝对路径
+        local abs_dot_path abs_pdf_path
+        abs_dot_path=$(realpath "$dot_file" 2>/dev/null || echo "$dot_file")
+        abs_pdf_path=$(realpath "$pdf_file" 2>/dev/null || echo "$pdf_file")
+        log_info "🔗 DOT 完整路径: $abs_dot_path"
+        log_info "🔗 PDF 完整路径: $abs_pdf_path"
+        
+        # 提示如何查看
+        log_info ""
+        log_info "💡 查看方式:"
+        log_info "   • 查看DOT文件: cat '$dot_file'"
+        log_info "   • 图形界面查看PDF: xdg-open '$pdf_file' 或双击文件"
+        log_info "   • 命令行查看PDF: evince '$pdf_file' 或 okular '$pdf_file'"
+        
+        if [[ "$use_colors" == true ]]; then
+            log_info ""
+            log_info "🎨 颜色图例:"
+            log_info "   • 绿色节点: 已应用的补丁"
+            log_info "   • 红色节点: 未应用的补丁"
+            log_info "   • 灰色节点: 未知状态的补丁"
+        fi
+        
+    else
+        log_error "❌ PDF 生成失败"
+        log_error "请检查 DOT 文件内容:"
+        log_info "DOT 文件: $dot_file"
+        return 1
+    fi
+}
+
 # 主函数
 main() {
     [[ $# -eq 0 ]] && { print_help; exit 0; }
@@ -2217,6 +2503,10 @@ main() {
         "status") check_dependencies "need_quilt"; show_quilt_status "$@";;
         "series"|"applied"|"unapplied"|"top"|"files"|"push"|"pop"|"diff")
             check_dependencies "need_quilt"; run_quilt_command "$command" "$@";;
+        "graph")
+            check_dependencies "need_quilt"; run_quilt_graph "$@";;
+        "graph-pdf")
+            check_dependencies "need_quilt"; generate_patch_graph_pdf "$@";;
         "help"|"-h"|"--help") print_help;;
         "version"|"-v"|"--version") print_version;;
         *)

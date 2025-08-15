@@ -4,6 +4,53 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [8.6.0] - 2025-01-13
+
+### 🆕 新增命令功能版本 (New Commands Feature Version)
+
+#### 新增功能 (Added)
+- 🚀 **quick-apply命令**: 新增一键补丁应用功能，自动复制补丁到目标目录并执行make prepare
+- 🧹 **snapshot-clean命令**: 新增快照数据清理命令，支持交互式和强制清理模式
+- 📊 **graph命令**: 新增补丁依赖关系图生成功能，输出DOT格式，可用Graphviz可视化
+- 🎨 **graph-pdf命令**: 新增PDF依赖图生成功能，支持彩色和全量显示选项
+- 📚 **命令文档完善**: 为新增命令提供完整的使用说明和示例
+
+#### 改进功能 (Improved)
+- 🔢 **版本号更新**: 将脚本版本号更新到 v8.6.0
+- 📝 **技术手册增强**: 在中英文技术手册中补充了缺失的命令文档
+- 🛠️ **工作流优化**: 完善了补丁快速应用的完整流程说明
+
+#### 技术细节 (Technical Details)
+```bash
+# 新增的快速应用命令
+./quilt_patch_manager_final.sh quick-apply /path/to/patch.patch
+
+# 新增的快照清理命令  
+./quilt_patch_manager_final.sh snapshot-clean [force]
+
+# 新增的图形化命令
+./quilt_patch_manager_final.sh graph [patch]                    # 生成DOT格式依赖图
+./quilt_patch_manager_final.sh graph-pdf [--color] [--all] [patch] [file]  # 生成PDF依赖图
+```
+
+#### 使用场景 (Use Cases)
+- **🚀 一键部署**: quick-apply命令实现补丁的一键应用和内核重新准备
+- **🧹 环境清理**: snapshot-clean命令提供便捷的快照数据管理
+- **📊 可视化分析**: graph命令系列提供补丁依赖关系的图形化分析和PDF导出
+- **📋 完整工作流**: 四个新命令补全了从补丁测试到应用的完整工作流程
+
+### 🔄 版本递进更新 (Version Incremental Update)
+
+#### 改进功能 (Improved)
+- 🔢 **版本号递进**: 将脚本版本号更新到 v8.6.0，持续版本迭代
+- 📝 **文档同步**: 保持文档与代码版本的同步更新
+- 🛠️ **功能稳定**: 在v8.5.0基础上保持所有功能特性稳定运行
+
+#### 技术细节 (Technical Details)
+- 更新脚本头部版本标识从 v8.5.0 到 v8.6.0
+- 更新内部 VERSION 变量从 "8.5.0" 到 "8.6.0"
+- 保持所有现有功能和API接口不变
+
 ## [8.5.0] - 2025-01-13
 
 ### 🔄 版本同步更新 (Version Synchronization Update)

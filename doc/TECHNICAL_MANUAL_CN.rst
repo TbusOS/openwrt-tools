@@ -4,7 +4,7 @@ OpenWrt 内核补丁管理工具 - 技术手册
 
 :Author: OpenWrt 社区
 :Date: |today|
-:Version: 8.5.0
+:Version: 8.6.0
 
 概述
 ====
@@ -401,6 +401,47 @@ quilt_patch_manager_final.sh 命令
     示例::
     
         ./quilt_patch_manager_final.sh quick-apply /path/to/fix.patch
+
+**图形化分析**
+
+``graph [patch]``
+    生成补丁依赖关系图，输出DOT格式。
+    
+    特性：
+      - 输出标准DOT格式，可用Graphviz工具可视化
+      - 显示补丁之间的依赖关系
+      - 支持指定特定补丁或显示全部依赖
+    
+    示例::
+    
+        # 生成所有补丁的依赖图
+        ./quilt_patch_manager_final.sh graph > patches.dot
+        
+        # 生成特定补丁的依赖图
+        ./quilt_patch_manager_final.sh graph my-patch.patch > my-patch.dot
+
+``graph-pdf [--color] [--all] [patch] [file]``
+    生成PDF格式的补丁依赖图。
+    
+    选项：
+      - ``--color``: 生成彩色依赖图
+      - ``--all``: 显示所有补丁，即使没有依赖关系
+    
+    依赖：需要安装Graphviz工具
+      - Ubuntu/Debian: ``sudo apt install graphviz``
+      - CentOS/RHEL: ``sudo yum install graphviz``
+      - macOS: ``brew install graphviz``
+    
+    示例::
+    
+        # 生成彩色PDF依赖图
+        ./quilt_patch_manager_final.sh graph-pdf --color
+        
+        # 生成包含所有补丁的PDF图
+        ./quilt_patch_manager_final.sh graph-pdf --all
+        
+        # 生成特定补丁的PDF图
+        ./quilt_patch_manager_final.sh graph-pdf my-patch.patch
 
 **Quilt 状态与控制**
 

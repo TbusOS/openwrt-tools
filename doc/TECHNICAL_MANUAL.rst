@@ -4,7 +4,7 @@ OpenWrt Kernel Patch Management Tools - Technical Manual
 
 :Author: OpenWrt Community
 :Date: |today|
-:Version: 8.5.0
+:Version: 8.6.0
 
 Overview
 ========
@@ -405,6 +405,47 @@ quilt_patch_manager_final.sh Commands
     Example::
     
         ./quilt_patch_manager_final.sh quick-apply /path/to/fix.patch
+
+**Graphical Analysis**
+
+``graph [patch]``
+    Generate patch dependency graph in DOT format.
+    
+    Features:
+      - Outputs standard DOT format for Graphviz visualization
+      - Shows dependency relationships between patches
+      - Supports specific patch or all dependencies display
+    
+    Examples::
+    
+        # Generate dependency graph for all patches
+        ./quilt_patch_manager_final.sh graph > patches.dot
+        
+        # Generate dependency graph for specific patch
+        ./quilt_patch_manager_final.sh graph my-patch.patch > my-patch.dot
+
+``graph-pdf [--color] [--all] [patch] [file]``
+    Generate PDF format patch dependency graph.
+    
+    Options:
+      - ``--color``: Generate colored dependency graph
+      - ``--all``: Show all patches even without dependencies
+    
+    Dependencies: Requires Graphviz installation
+      - Ubuntu/Debian: ``sudo apt install graphviz``
+      - CentOS/RHEL: ``sudo yum install graphviz``
+      - macOS: ``brew install graphviz``
+    
+    Examples::
+    
+        # Generate colored PDF dependency graph
+        ./quilt_patch_manager_final.sh graph-pdf --color
+        
+        # Generate PDF graph including all patches
+        ./quilt_patch_manager_final.sh graph-pdf --all
+        
+        # Generate PDF graph for specific patch
+        ./quilt_patch_manager_final.sh graph-pdf my-patch.patch
 
 **Quilt Status & Control**
 
