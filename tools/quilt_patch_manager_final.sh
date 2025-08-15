@@ -1,5 +1,5 @@
 #!/bin/bash
-# 版本: v8.6.0 (文件列表导出增强版本 - 新增基于文件列表的导出功能)
+# 版本: v8.7.0 (Bash自动补全增强版本 - 新增智能命令补全功能)
 
 # --- 全局变量与初始化 ---
 # 获取脚本所在目录的绝对路径，确保路径引用的健壮性
@@ -27,7 +27,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
-VERSION="8.6.0"
+VERSION="8.7.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
@@ -2453,7 +2453,7 @@ generate_patch_graph_pdf() {
         
         if [[ "$use_colors" == true ]]; then
             log_info ""
-            log_info "🎨 颜色图例:"
+            log_info "�� 颜色图例:"
             log_info "   • 绿色节点: 已应用的补丁"
             log_info "   • 红色节点: 未应用的补丁"
             log_info "   • 灰色节点: 未知状态的补丁"

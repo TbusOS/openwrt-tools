@@ -1,6 +1,31 @@
-# OpenWrt Kernel Patch Management Tool v8.6.0
+# OpenWrt Kernel Patch Management Tool v8.7.0
 
-A **hybrid architecture high-performance patch management platform** designed specifically for OpenWrt developers. v8.6 builds on v8.5 with **Version Incremental Update**.
+A **hybrid architecture high-performance patch management platform** designed specifically for OpenWrt developers. v8.7 builds on v8.6 with **Bash Auto-completion Feature**.
+
+## 🚀 v8.7.0 Bash Auto-completion Enhancement Version
+
+- **🔤 Bash Auto-completion Script**: Added `quilt_patch_manager_completion.bash` intelligent command completion feature
+- **📋 Smart Command Completion**: Supports Tab key auto-completion for all commands, options, and parameters
+- **🎯 Context-aware Completion**: Provides appropriate file path and option completion based on different commands
+- **📁 Smart Patch File Recognition**: Automatically discovers and completes .patch files in working and OpenWrt directories
+- **🛠️ User Experience Optimization**: Significantly improves command-line operation efficiency and accuracy
+- **👥 Beginner Friendly**: Lowers learning curve, quickly understand available commands through Tab key
+
+### 🔤 Auto-completion Installation & Usage
+
+```bash
+# Temporarily enable auto-completion (current terminal session)
+source tools/quilt_patch_manager_completion.bash
+
+# Permanently enable auto-completion (recommended)
+echo "source $(pwd)/tools/quilt_patch_manager_completion.bash" >> ~/.bashrc
+source ~/.bashrc
+
+# Usage examples
+./tools/quilt_patch_manager_final.sh <Tab><Tab>          # Show all available commands
+./tools/quilt_patch_manager_final.sh graph-pdf --<Tab>  # Show graph-pdf options
+./tools/quilt_patch_manager_final.sh quick-apply <Tab>  # Complete .patch files
+```
 
 ## 🚀 v8.6.0 New Commands Feature Version
 

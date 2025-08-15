@@ -4,7 +4,7 @@ OpenWrt 内核补丁管理工具 - 技术手册
 
 :Author: OpenWrt 社区
 :Date: |today|
-:Version: 8.6.0
+:Version: 8.7.0
 
 概述
 ====
@@ -479,6 +479,46 @@ quilt_patch_manager_final.sh 命令
 
 ``reset-env``
     （危险）重置内核 quilt 状态，用于开发测试。
+
+**Bash自动补全功能**
+
+``source tools/quilt_patch_manager_completion.bash``
+    启用Bash自动补全功能，支持智能命令和参数补全。
+    
+    功能特性：
+      - **命令补全**: 支持所有22个主要命令的Tab键补全
+      - **选项补全**: 为graph-pdf提供--color、--all等选项补全
+      - **文件补全**: 智能补全.patch文件和相关路径
+      - **上下文感知**: 根据不同命令提供相应的补全建议
+    
+    安装方式::
+    
+        # 临时启用（当前终端会话）
+        source tools/quilt_patch_manager_completion.bash
+        
+        # 永久启用（推荐方式）
+        echo "source $(pwd)/tools/quilt_patch_manager_completion.bash" >> ~/.bashrc
+        source ~/.bashrc
+    
+    使用示例::
+    
+        # 显示所有可用命令
+        ./quilt_patch_manager_final.sh <Tab><Tab>
+        
+        # 补全graph-pdf命令的选项
+        ./quilt_patch_manager_final.sh graph-pdf --<Tab>
+        
+        # 补全补丁文件路径
+        ./quilt_patch_manager_final.sh quick-apply <Tab>
+        
+        # 补全文件列表路径
+        ./quilt_patch_manager_final.sh export-from-file <Tab>
+    
+    支持的补全类型：
+      - **命令补全**: fetch, save, test-patch, create-patch, graph, graph-pdf等
+      - **选项补全**: --color, --all, force等命令特定选项
+      - **文件补全**: 自动发现工作目录和OpenWrt补丁目录中的文件
+      - **路径补全**: 针对不同命令类型提供智能路径建议
 
 性能特征
 ========

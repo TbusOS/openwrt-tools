@@ -4,6 +4,47 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [8.7.0] - 2025-01-13
+
+### 🚀 Bash自动补全增强版本 (Bash Auto-completion Enhancement Version)
+
+#### 新增功能 (Added)
+- 🔤 **Bash自动补全脚本**: 新增 `quilt_patch_manager_completion.bash` 智能命令补全功能
+- 📋 **智能命令补全**: 支持所有命令、选项和参数的Tab键自动补全
+- 🎯 **上下文感知补全**: 根据不同命令提供相应的文件路径、选项补全
+- 📁 **补丁文件智能识别**: 自动发现并补全工作目录和OpenWrt补丁目录中的.patch文件
+
+#### 改进功能 (Improved)
+- 🔢 **版本号更新**: 将脚本版本号更新到 v8.7.0
+- 🛠️ **用户体验优化**: 大幅提升命令行操作效率和准确性
+- 📚 **使用说明完善**: 补全脚本包含详细的安装和使用指导
+
+#### 技术细节 (Technical Details)
+```bash
+# 安装自动补全功能
+source tools/quilt_patch_manager_completion.bash
+
+# 或添加到 ~/.bashrc 中永久启用
+echo "source $(pwd)/tools/quilt_patch_manager_completion.bash" >> ~/.bashrc
+
+# 使用示例
+./quilt_patch_manager_final.sh <Tab><Tab>          # 显示所有可用命令
+./quilt_patch_manager_final.sh graph-pdf --<Tab>  # 显示graph-pdf选项
+./quilt_patch_manager_final.sh quick-apply <Tab>  # 补全.patch文件
+```
+
+#### 支持的补全类型 (Completion Types)
+- **命令补全**: 所有22个主要命令的智能提示
+- **选项补全**: graph-pdf的--color、--all等选项补全  
+- **文件补全**: 针对不同命令类型的智能文件路径补全
+- **补丁文件补全**: 自动发现工作目录和OpenWrt目录中的补丁文件
+
+#### 使用场景 (Use Cases)
+- **🚀 效率提升**: Tab键快速输入命令，减少输入错误
+- **📋 命令发现**: 通过补全功能快速了解可用命令和选项
+- **🎯 精确操作**: 智能文件补全避免路径输入错误
+- **👥 新手友好**: 降低学习门槛，提升工具易用性
+
 ## [8.6.0] - 2025-01-13
 
 ### 🆕 新增命令功能版本 (New Commands Feature Version)

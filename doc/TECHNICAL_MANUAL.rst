@@ -4,7 +4,7 @@ OpenWrt Kernel Patch Management Tools - Technical Manual
 
 :Author: OpenWrt Community
 :Date: |today|
-:Version: 8.6.0
+:Version: 8.7.0
 
 Overview
 ========
@@ -483,6 +483,46 @@ quilt_patch_manager_final.sh Commands
 
 ``reset-env``
     (Dangerous) Reset kernel quilt state for development testing.
+
+**Bash Auto-completion Feature**
+
+``source tools/quilt_patch_manager_completion.bash``
+    Enable Bash auto-completion functionality with intelligent command and parameter completion.
+    
+    Features:
+      - **Command Completion**: Supports Tab key completion for all 22 main commands
+      - **Option Completion**: Provides --color, --all and other option completion for graph-pdf
+      - **File Completion**: Smart completion for .patch files and related paths
+      - **Context Awareness**: Provides appropriate completion suggestions based on different commands
+    
+    Installation::
+    
+        # Temporary activation (current terminal session)
+        source tools/quilt_patch_manager_completion.bash
+        
+        # Permanent activation (recommended)
+        echo "source $(pwd)/tools/quilt_patch_manager_completion.bash" >> ~/.bashrc
+        source ~/.bashrc
+    
+    Usage Examples::
+    
+        # Show all available commands
+        ./quilt_patch_manager_final.sh <Tab><Tab>
+        
+        # Complete graph-pdf command options
+        ./quilt_patch_manager_final.sh graph-pdf --<Tab>
+        
+        # Complete patch file paths
+        ./quilt_patch_manager_final.sh quick-apply <Tab>
+        
+        # Complete file list paths
+        ./quilt_patch_manager_final.sh export-from-file <Tab>
+    
+    Supported Completion Types:
+      - **Command Completion**: fetch, save, test-patch, create-patch, graph, graph-pdf, etc.
+      - **Option Completion**: --color, --all, force and other command-specific options
+      - **File Completion**: Auto-discover files in working directory and OpenWrt patch directories
+      - **Path Completion**: Provides intelligent path suggestions for different command types
 
 Performance Characteristics
 ===========================
