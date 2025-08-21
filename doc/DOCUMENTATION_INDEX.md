@@ -1,4 +1,4 @@
-# OpenWrt 补丁管理工具链文档索引 v8.0.0
+# OpenWrt 补丁管理工具链文档索引 v8.7.0
 
 ## 📚 概述
 
@@ -157,6 +157,8 @@ EOF
   - (历史文档) 深入解释 quilt 的状态管理机制。
 - **📄 `UBUNTU_COMPATIBILITY_GUIDE.md`**
   - 在 Ubuntu 环境下使用相关工具的兼容性指南。
+- **📄 `QUILT_COMMANDS_REFERENCE.md`**
+  - **🔧 Quilt命令全集参考手册** - 完整的Quilt命令参考，包含语法、选项、使用示例和最佳实践
 
 ### 📂 04_summaries/ - 总结与归档
 
