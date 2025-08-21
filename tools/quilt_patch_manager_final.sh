@@ -1,5 +1,5 @@
 #!/bin/bash
-# 版本: v8.8.0 (Quilt补丁编辑增强版本 - 新增fold/header命令和CVE批量下载工具)
+# 版本: v8.9.0 (国际化增强版本 - 新增中英文双语帮助系统)
 
 # --- 全局变量与初始化 ---
 # 获取脚本所在目录的绝对路径，确保路径引用的健壮性
@@ -27,7 +27,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
-VERSION="8.8.0"
+VERSION="8.9.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
@@ -298,6 +298,8 @@ print_help() {
     
     printf "  ${CYAN}%-30s${NC} %s\n" "help, -h, --help" "显示此帮助信息"
     printf "    ${GREEN}示例:${NC} %s help\n" "$(basename "$0")"
+    printf "    ${GREEN}中文帮助:${NC} %s help-cn\n" "$(basename "$0")"
+    printf "    ${GREEN}英文帮助:${NC} %s help-en\n" "$(basename "$0")"
     printf "\n"
     
     printf "  ${CYAN}%-30s${NC} %s\n" "version, -v, --version" "显示脚本版本信息"
@@ -329,6 +331,267 @@ print_help() {
     printf "  • Commit ID:  abcdef123456789\n"
     printf "  • 本地文件:  /path/to/patch.patch 或 ./relative/patch.patch\n"
     printf "  • 网络地址:  https://git.kernel.org/.../patch/?id=abcdef123\n"
+    printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    printf "\n"
+}
+
+# Print help information in English
+print_help_en() {
+    printf "${BLUE}╔══════════════════════════════════════════════════════════════════════╗${NC}\n"
+    printf "║                 %s v%s                   ║\n" "$TOOL_NAME" "$VERSION"
+    printf "${BLUE}╚══════════════════════════════════════════════════════════════════════╝${NC}\n"
+    printf "${CYAN}An automated workflow enhancement tool specifically designed for OpenWrt kernel patches.${NC}\n"
+    printf "${YELLOW}Usage:${NC} %s <command> [arguments]\n\n" "$(basename "$0")"
+
+    printf "${PURPLE}■ Typical Workflow (Recommended) ■\n"
+    printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    printf "Supports using ${CYAN}commit-id${NC}, ${CYAN}local patch file paths${NC}, or ${CYAN}URLs${NC} as input.\n\n"
+    printf "Example 1: Create patch named ${CYAN}999-my-fix.patch${NC} using commit ${CYAN}abcde123${NC}:\n"
+    printf "  1. (Optional) Test compatibility: %s ${CYAN}test-patch abcde123${NC}\n" "$(basename "$0")"
+    printf "  2. Create new patch:             %s ${CYAN}create-patch 999-my-fix.patch${NC}\n" "$(basename "$0")"
+    printf "  3. Extract and add files:       %s ${CYAN}extract-files abcde123${NC} && %s ${CYAN}add-files patch_files.txt${NC}\n" "$(basename "$0")" "$(basename "$0")"
+    printf "  4. Manually modify code...\n"
+    printf "  5. Generate final patch:        %s ${PURPLE}refresh-with-header abcde123${NC}\n\n" "$(basename "$0")"
+    printf "Example 2: Using local file ${CYAN}/path/to/cve.patch${NC} as base:\n"
+    printf "  - Test: %s ${CYAN}test-patch /path/to/cve.patch${NC}\n" "$(basename "$0")"
+    printf "  - Extract: %s ${CYAN}extract-files /path/to/cve.patch${NC}\n\n" "$(basename "$0")"
+    printf "Example 3: Using URL ${CYAN}https://example.com/patch.patch${NC} as base:\n"
+    printf "  - Save: %s ${CYAN}save https://example.com/patch.patch cve-fix${NC}\n" "$(basename "$0")"
+    printf "  - Test: %s ${CYAN}test-patch https://example.com/patch.patch${NC}\n\n" "$(basename "$0")"
+    
+    printf "Patch files will be generated in the kernel's ${GREEN}patches/${NC} directory and automatically copied to ${GREEN}%s/${NC}.\n" "$OUTPUT_DIR"
+    printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    printf "${GREEN}■ Complete Command List & Examples ■${NC}\n"
+    
+    printf "\n${YELLOW}>> Preparation & Analysis Commands (can run in any directory)${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "test-patch <id|file|url>" "【Core】Test patch compatibility, generate smart conflict analysis report"
+    printf "    ${GREEN}Example:${NC} %s test-patch abcdef123456\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s test-patch /path/to/fix.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s test-patch https://git.kernel.org/.../patch/?id=abc123\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "fetch <id|file|url>" "Download or copy original patch to cache and print path"
+    printf "    ${GREEN}Example:${NC} %s fetch abcdef123456\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s fetch /home/user/my.patch\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "save <id|file|url> [name]" "Save original patch to output directory for review"
+    printf "    ${GREEN}Example:${NC} %s save abcdef123456\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s save /path/to/fix.patch security-fix\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s save https://example.com/patch.patch remote-fix\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "extract-files <id|file|url>" "Extract list of files affected by patch to patch_files.txt"
+    printf "    ${GREEN}Example:${NC} %s extract-files abcdef123456\n" "$(basename "$0")"
+    printf "    ${GREEN}Output:${NC} %s/patch_files.txt\n" "$OUTPUT_DIR"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "extract-metadata <id|file|url>" "Extract patch metadata to patch_metadata.txt"
+    printf "    ${GREEN}Example:${NC} %s extract-metadata abcdef123456\n" "$(basename "$0")"
+    printf "    ${GREEN}Output:${NC} %s/patch_metadata.txt\n" "$OUTPUT_DIR"
+    printf "\n"
+
+    printf "\n${YELLOW}>> Core Patch Operation Commands (automatically find kernel directory)${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "create-patch <name>" "Create a new empty quilt patch"
+    printf "    ${GREEN}Example:${NC} %s create-patch 999-my-security-fix.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s create-patch cve-2024-1234\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "add-files <file_list>" "Batch add files from file list to current quilt patch"
+    printf "    ${GREEN}Example:${NC} %s add-files patch_files.txt\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s add-files /path/to/my_files.txt\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "refresh" "【Standard】Refresh patch, generate pure code diff"
+    printf "    ${GREEN}Example:${NC} %s refresh\n" "$(basename "$0")"
+    printf "    ${GREEN}Output:${NC} Patch file copied to %s/\n" "$OUTPUT_DIR"
+    printf "\n"
+    
+    printf "  ${PURPLE}%-30s${NC} %s\n" "refresh-with-header <id|file>" "【Core】Refresh and inject metadata, generate final patch"
+    printf "    ${GREEN}Example:${NC} %s refresh-with-header abcdef123456\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s refresh-with-header /path/to/original.patch\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${GREEN}%-30s${NC} %s\n" "auto-patch <id|file> <name>" "【Fully Automated】Execute complete workflow (test→create→add→refresh-with-header)"
+    printf "    ${GREEN}Example:${NC} %s auto-patch abcdef123456 999-auto-fix.patch\n" "$(basename "$0")"
+    printf "\n"
+
+    printf "\n${YELLOW}>> Quick Patch Application Commands (OpenWrt specific)${NC}\n"
+    printf "  ${PURPLE}%-30s${NC} %s\n" "quick-apply <patch_path>" "【One-click Apply】Copy patch→Delete .prepared→Execute make prepare"
+    printf "    ${GREEN}Example:${NC} %s quick-apply /home/user/security-fix.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}Description:${NC} Automatically copy to target/linux/arch/patches/ and re-prepare kernel\n"
+    printf "\n"
+
+    printf "\n${YELLOW}>> Global Snapshot Commands (Git-like functionality)${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-create [dir] [project]" "Create snapshot baseline for specified directory"
+    printf "    ${GREEN}Example:${NC} %s snapshot-create\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s snapshot-create /path/to/kernel kernel-project\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-diff [dir]" "Compare with snapshot to find all changes"
+    printf "    ${GREEN}Example:${NC} %s snapshot-diff\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s snapshot-diff > changed_files.txt\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-status [dir]" "Check snapshot status"
+    printf "    ${GREEN}Example:${NC} %s snapshot-status\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-list-changes" "List all changed files (new+modified)"
+    printf "    ${GREEN}Example:${NC} %s snapshot-list-changes\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-list-new" "List only new files"
+    printf "    ${GREEN}Example:${NC} %s snapshot-list-new\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-list-modified" "List only modified files"
+    printf "    ${GREEN}Example:${NC} %s snapshot-list-modified\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-clean [force]" "Clean snapshot data"
+    printf "    ${GREEN}Example:${NC} %s snapshot-clean\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s snapshot-clean force\n" "$(basename "$0")"
+    printf "\n"
+
+    printf "\n${YELLOW}>> File Export Commands${NC}\n"
+    printf "  ${PURPLE}%-30s${NC} %s\n" "export-changed-files" "【New Feature】Export changed files to output directory, maintain original directory structure"
+    printf "    ${GREEN}Example:${NC} %s export-changed-files\n" "$(basename "$0")"
+    printf "    ${GREEN}Output:${NC} %s/changed_files/\n" "$OUTPUT_DIR"
+    printf "\n"
+    
+    printf "  ${PURPLE}%-30s${NC} %s\n" "export-from-file <file>" "【New Feature】Export files based on specified file list"
+    printf "    ${GREEN}Example:${NC} %s export-from-file my_file_list.txt\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s export-from-file /path/to/files.txt\n" "$(basename "$0")"
+    printf "    ${GREEN}Output:${NC} %s/exported_files/export_timestamp/\n" "$OUTPUT_DIR"
+    printf "\n"
+
+    printf "\n${YELLOW}>> Quilt Status Query Commands (automatically find kernel directory)${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "status" "Display overall patch status (total/applied/unapplied)"
+    printf "    ${GREEN}Example:${NC} %s status\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "series" "Display all patches and status list"
+    printf "    ${GREEN}Example:${NC} %s series\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "top" "Display current top patch"
+    printf "    ${GREEN}Example:${NC} %s top\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "applied" "List only all applied patches"
+    printf "    ${GREEN}Example:${NC} %s applied\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "unapplied" "List only all unapplied patches"
+    printf "    ${GREEN}Example:${NC} %s unapplied\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "files" "List all files included in current patch"
+    printf "    ${GREEN}Example:${NC} %s files\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "diff" "Display diff content of current patch"
+    printf "    ${GREEN}Example:${NC} %s diff\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s diff > current_patch.diff\n" "$(basename "$0")"
+    printf "\n"
+
+    printf "\n${YELLOW}>> Quilt Queue Operation Commands (automatically find kernel directory)${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "push [patch]" "Apply next unapplied patch, or apply to specified patch"
+    printf "    ${GREEN}Example:${NC} %s push\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s push platform/specific-patch.patch\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "pop [patch]" "Undo top patch, or undo to specified patch"
+    printf "    ${GREEN}Example:${NC} %s pop\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s pop platform/specific-patch.patch\n" "$(basename "$0")"
+    printf "\n"
+
+    printf "\n${YELLOW}>> Quilt Patch Editing Commands (automatically find kernel directory)${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "fold <patch_file> [...]" "Merge patch file content into current patch"
+    printf "    ${GREEN}Example:${NC} %s fold /path/to/additional.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s fold patch1.patch patch2.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} cat extra.patch | %s fold -\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "header [patch] [options]" "View or edit patch header information (metadata)"
+    printf "    ${GREEN}View header:${NC} %s header\n" "$(basename "$0")"
+    printf "    ${GREEN}View specific:${NC} %s header platform/my-patch.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}Append mode:${NC} %s header -a\n" "$(basename "$0")"
+    printf "    ${GREEN}Replace mode:${NC} %s header -r platform/my-patch.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}Edit mode:${NC} %s header -e\n" "$(basename "$0")"
+    printf "    ${GREEN}Append from file:${NC} %s header -a < description.txt\n" "$(basename "$0")"
+    printf "    ${GREEN}Pipe append:${NC} echo \"Signed-off-by: Name <email>\" | %s header -a\n" "$(basename "$0")"
+    printf "\n"
+
+    printf "\n${YELLOW}>> Patch Relationship Graph Commands${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "graph [patch]" "Generate patch dependency graph (DOT format)"
+    printf "    ${GREEN}Example:${NC} %s graph\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s graph platform/my-patch.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}Example:${NC} %s graph --all > all_patches.dot\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "graph-pdf [options] [patch] [file]" "Generate PDF patch dependency graph"
+    printf "    ${GREEN}Basic usage:${NC} %s graph-pdf\n" "$(basename "$0")"
+    printf "    ${GREEN}Colored graph:${NC} %s graph-pdf --color\n" "$(basename "$0")"
+    printf "    ${GREEN}Show all:${NC} %s graph-pdf --all\n" "$(basename "$0")"
+    printf "    ${GREEN}Colored all:${NC} %s graph-pdf --color --all\n" "$(basename "$0")"
+    printf "    ${GREEN}Specific patch:${NC} %s graph-pdf platform/my-patch.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}Specify output:${NC} %s graph-pdf --color platform/patch.patch my_graph\n" "$(basename "$0")"
+    printf "    ${GREEN}Output location:${NC} %s/patches_graph.pdf (default)\n" "$OUTPUT_DIR"
+    printf "\n"
+
+    printf "\n${YELLOW}>> Environment & Auxiliary Commands${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "clean" "Interactive cleanup of cache and output directories"
+    printf "    ${GREEN}Example:${NC} %s clean\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${PURPLE}%-30s${NC} %s\n" "distclean" "【One-click Cleanup】Force clean snapshots+reset quilt+clean working directory"
+    printf "    ${GREEN}Example:${NC} %s distclean\n" "$(basename "$0")"
+    printf "    ${GREEN}Description:${NC} Complete restore to original state, no confirmation required\n"
+    printf "\n"
+    
+    printf "  ${RED}%-30s${NC} %s\n" "reset-env" "(Dangerous) Reset kernel quilt state"
+    printf "    ${GREEN}Example:${NC} %s reset-env\n" "$(basename "$0")"
+    printf "    ${RED}Warning:${NC} Will reset all quilt patch states, requires confirmation\n"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "help, -h, --help" "Display this help information"
+    printf "    ${GREEN}Example:${NC} %s help\n" "$(basename "$0")"
+    printf "    ${GREEN}Chinese help:${NC} %s help-cn\n" "$(basename "$0")"
+    printf "    ${GREEN}English help:${NC} %s help-en\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "version, -v, --version" "Display script version information"
+    printf "    ${GREEN}Example:${NC} %s version\n" "$(basename "$0")"
+    printf "\n"
+
+    printf "\n${GREEN}■ Advanced Usage Examples ■${NC}\n"
+    printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    printf "\n${YELLOW}Combined Command Examples:${NC}\n"
+    printf "  # Quick test and apply patch\n"
+    printf "  %s test-patch abcdef123 && %s quick-apply %s/abcdef123.patch\n" "$(basename "$0")" "$(basename "$0")" "$OUTPUT_DIR"
+    printf "\n"
+    printf "  # Create snapshot, modify code, export changes\n"
+    printf "  %s snapshot-create && echo \"Modify code...\" && %s export-changed-files\n" "$(basename "$0")" "$(basename "$0")"
+    printf "\n"
+    printf "  # Merge multiple patches to create new patch\n"
+    printf "  %s create-patch combined-fix.patch && %s fold patch1.patch && %s fold patch2.patch\n" "$(basename "$0")" "$(basename "$0")" "$(basename "$0")"
+    printf "\n"
+    
+    printf "\n${YELLOW}Output Directory Structure:${NC}\n"
+    printf "  📁 %s/\n" "$MAIN_WORK_DIR"
+    printf "  ├── 📁 cache/              # Downloaded patch cache\n"
+    printf "  ├── 📁 outputs/            # Generated patches and reports\n"
+    printf "  ├── 📁 changed_files/      # Exported changed files\n"
+    printf "  └── 📁 exported_files/     # Files exported based on lists\n"
+    printf "\n"
+    
+    printf "${YELLOW}Supported Input Formats:${NC}\n"
+    printf "  • Commit ID:  abcdef123456789\n"
+    printf "  • Local file:  /path/to/patch.patch or ./relative/patch.patch\n"
+    printf "  • Network URL:  https://git.kernel.org/.../patch/?id=abcdef123\n"
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     printf "\n"
 }
@@ -2655,6 +2918,8 @@ main() {
         "graph-pdf")
             check_dependencies "need_quilt"; generate_patch_graph_pdf "$@";;
         "help"|"-h"|"--help") print_help;;
+        "help-cn") print_help;;
+        "help-en") print_help_en;;
         "version"|"-v"|"--version") print_version;;
         *)
             log_error "未知命令: $command"

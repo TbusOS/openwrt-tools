@@ -4,6 +4,51 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [8.9.0] - 2025-01-13
+
+### 🌐 国际化增强版本 (Internationalization Enhancement Version)
+
+#### 新增功能 (Added)
+- 🌍 **中英文双语帮助系统**: 新增完整的英文版本帮助文档
+  - `help-cn`: 显示中文帮助信息（默认行为）
+  - `help-en`: 显示英文帮助信息
+  - 支持 `help`, `-h`, `--help` 等传统命令
+- 📖 **完整英文文档**: 覆盖所有命令和功能的详细英文说明
+  - 超过240行的完整英文help内容
+  - 包含所有命令示例和使用场景
+  - 与中文版本保持功能同步
+
+#### 改进功能 (Improved)
+- 🔢 **版本号更新**: 将脚本版本号更新到 v8.9.0
+- 🔤 **自动补全增强**: 为新的 `help-cn` 和 `help-en` 命令添加Tab补全支持
+- 🎯 **用户体验优化**: 在帮助信息中明确指出中英文help选项
+- 🌐 **国际化友好**: 便于OpenWrt国际社区用户使用和贡献
+
+#### 技术细节 (Technical Details)
+- **双语架构**: 添加独立的 `print_help_en()` 函数处理英文帮助
+- **命令扩展**: 主命令处理器新增 `help-cn` 和 `help-en` 命令支持
+- **补全框架**: 自动补全脚本包含新的帮助命令
+- **文档一致性**: 确保中英文版本功能描述完全对应
+
+#### 使用示例 (Usage Examples)
+```bash
+# 显示中文帮助（默认）
+./quilt_patch_manager_final.sh help
+./quilt_patch_manager_final.sh help-cn
+
+# 显示英文帮助
+./quilt_patch_manager_final.sh help-en
+
+# Tab补全支持
+./quilt_patch_manager_final.sh help<Tab>  # 显示: help help-cn help-en
+```
+
+#### 适用场景 (Use Cases)
+- **🌍 国际化支持**: 为OpenWrt国际社区提供英文文档支持
+- **📚 文档标准化**: 提供标准的英文技术文档模板
+- **👥 团队协作**: 支持多语言团队的协作开发
+- **🚀 社区推广**: 便于在国际开源社区中推广和使用
+
 ## [8.8.0] - 2025-01-13
 
 ### 🔧 Quilt补丁编辑增强版本 (Quilt Patch Editing Enhancement Version)

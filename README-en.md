@@ -1,8 +1,15 @@
-# OpenWrt Kernel CVE Patch Creation Toolchain v8.8.0
+# OpenWrt Kernel CVE Patch Creation Toolchain v8.9.0
 
 A **hybrid architecture high-performance patch management platform** designed specifically for OpenWrt developers. v8.7 builds on v8.6 with **Bash Auto-completion Feature**.
 
 ## 🚀 Version Update History
+
+### v8.9.0 - Internationalization Enhancement Version
+- **Bilingual Help System**: Added complete English version help documentation
+- **Dual Language Commands**: help-cn and help-en commands provide Chinese/English switching
+- **Auto-completion Enhancement**: Added Tab completion support for new help commands
+- **International Friendly**: Convenient for OpenWrt international community users and contributors
+- **Documentation Standardization**: Provides over 240 lines of complete English technical documentation
 
 ### v8.8.0 - Quilt Patch Editing Enhancement Version
 - **New fold/header commands**: Complete patch editing and merging functionality

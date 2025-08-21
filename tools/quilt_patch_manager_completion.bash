@@ -20,7 +20,7 @@ _quilt_patch_manager_complete() {
         status series applied unapplied top files push pop diff
         fold header
         graph graph-pdf
-        help version
+        help help-cn help-en version
     "
     
     # 定义选项

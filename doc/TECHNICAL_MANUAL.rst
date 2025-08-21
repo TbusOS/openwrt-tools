@@ -4,7 +4,7 @@ OpenWrt Kernel Patch Management Tools - Technical Manual
 
 :Author: OpenWrt Community
 :Date: |today|
-:Version: 8.8.0
+:Version: 8.9.0
 
 Overview
 ========
@@ -874,3 +874,69 @@ The ``header`` command is used to view and edit patch header information (metada
 - Correct incorrect information in patches
 - Add standard metadata like Signed-off-by
 - Update patch versions and modification records
+
+Help and Documentation Commands
+===============================
+
+help / help-cn - Display Chinese Help Information
+--------------------------------------------------
+
+The ``help`` / ``help-cn`` commands display complete Chinese help documentation, including detailed descriptions and usage examples for all commands.
+
+**Syntax**::
+
+    ./quilt_patch_manager_final.sh help
+    ./quilt_patch_manager_final.sh help-cn
+
+**Features**:
+
+- **Complete Command List**: Display all available commands with functional descriptions
+- **Detailed Usage Examples**: Each command includes specific usage examples
+- **Workflow Guide**: Provides typical patch creation workflow procedures
+- **Parameter Explanation**: Detailed explanation of various input formats and options
+
+**Use Cases**:
+
+- New users quickly understand tool functionality
+- Check specific command usage methods
+- Understand recommended workflows
+- Find commands for specific functions
+
+help-en - Display English Help Information
+------------------------------------------
+
+The ``help-en`` command displays complete English help documentation, providing English technical documentation support for international users.
+
+**Syntax**::
+
+    ./quilt_patch_manager_final.sh help-en
+
+**Features**:
+
+- **Internationalization Support**: Complete English version help documentation
+- **Standardized Terminology**: Uses standard English technical terminology
+- **Detailed Documentation**: Over 240 lines of complete English technical documentation
+- **Feature Synchronization**: Maintains complete synchronization with Chinese version
+
+**Usage Examples**::
+
+    # Display Chinese help (default)
+    ./quilt_patch_manager_final.sh help
+    ./quilt_patch_manager_final.sh help-cn
+    
+    # Display English help
+    ./quilt_patch_manager_final.sh help-en
+
+**Application Scenarios**:
+
+- OpenWrt international community users
+- English technical documentation reference
+- Multi-language team collaboration
+- International open source project promotion
+
+**Auto-completion Support**:
+
+All help commands support Tab key auto-completion::
+
+    ./quilt_patch_manager_final.sh help<Tab>
+    # Shows: help help-cn help-en
