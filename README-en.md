@@ -1,8 +1,17 @@
-# OpenWrt Kernel Patch Management Tool v8.7.0
+# OpenWrt Kernel CVE Patch Creation Toolchain v8.8.0
 
 A **hybrid architecture high-performance patch management platform** designed specifically for OpenWrt developers. v8.7 builds on v8.6 with **Bash Auto-completion Feature**.
 
-## 🚀 v8.7.0 Bash Auto-completion Enhancement Version
+## 🚀 Version Update History
+
+### v8.8.0 - Quilt Patch Editing Enhancement Version
+- **New fold/header commands**: Complete patch editing and merging functionality
+- **CVE Batch Download Tool**: Dedicated script for automatically fetching Linux kernel CVE patches
+- **Auto-completion Enhancement**: Intelligent Tab completion support for new commands
+- **Documentation Structure Optimization**: Standardized reference manual directory organization
+- **User Experience Improvement**: Fixed graph generation and interface display issues
+
+### v8.7.0 - Bash Auto-completion Enhancement Version
 
 - **🔤 Bash Auto-completion Script**: Added `quilt_patch_manager_completion.bash` intelligent command completion feature
 - **📋 Smart Command Completion**: Supports Tab key auto-completion for all commands, options, and parameters

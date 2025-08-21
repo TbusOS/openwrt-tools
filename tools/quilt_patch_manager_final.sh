@@ -1,5 +1,5 @@
 #!/bin/bash
-# 版本: v8.7.0 (Bash自动补全增强版本 - 新增智能命令补全功能)
+# 版本: v8.8.0 (Quilt补丁编辑增强版本 - 新增fold/header命令和CVE批量下载工具)
 
 # --- 全局变量与初始化 ---
 # 获取脚本所在目录的绝对路径，确保路径引用的健壮性
@@ -27,7 +27,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
-VERSION="8.7.0"
+VERSION="8.8.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
@@ -101,89 +101,234 @@ print_help() {
     printf "补丁文件将生成在内核的 ${GREEN}patches/${NC} 目录, 并自动拷贝一份到 ${GREEN}%s/${NC} 中。\n" "$OUTPUT_DIR"
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    printf "${GREEN}■ 命令列表 ■${NC}\n"
+    printf "${GREEN}■ 完整命令列表与示例 ■${NC}\n"
     
-    printf "\n${YELLOW}>> 准备与分析 (可在任何目录运行)${NC}\n"
-    printf "  ${CYAN}%-26s${NC} %s\n" "test-patch <id|file>" "【核心】测试补丁兼容性, 生成智能冲突分析报告。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "fetch <id|file|url>" "下载或复制原始补丁到缓存, 并打印路径。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "save <id|file|url> [name]" "保存原始补丁到 ${OUTPUT_DIR} 供查阅。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "extract-files <id|file>" "提取补丁影响的文件列表到 ${OUTPUT_DIR}/patch_files.txt。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "extract-metadata <id|file>" "提取补丁元数据 (作者, 描述等) 到 ${OUTPUT_DIR}/patch_metadata.txt。"
-
-    printf "\n${YELLOW}>> 核心补丁操作 (自动查找内核目录)${NC}\n"
-    printf "  ${CYAN}%-26s${NC} %s\n" "create-patch <name>" "创建一个新的空 quilt 补丁。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "add-files <file_list>" "从文件列表批量添加文件到当前 quilt 补丁 (如 patch_files.txt)。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "refresh" "【标准】刷新补丁, 生成纯代码 diff, 并拷贝到输出目录。"
-    printf "  ${PURPLE}%-26s${NC} %s\n" "refresh-with-header <id|file>" "【核心】刷新并注入元数据, 生成最终补丁, 并拷贝到输出目录。"
-    printf "  ${GREEN}%-26s${NC} %s\n" "auto-patch <id|file> <name>" "【全自动】执行完整流程 (test, create, add, refresh-with-header)。"
-
-    printf "\n${YELLOW}>> 快速补丁应用 (OpenWrt 专用)${NC}\n"
-    printf "  ${PURPLE}%-26s${NC} %s\n" "quick-apply <patch_path>" "【一键应用】复制补丁到目标目录，删除.prepare文件，执行make prepare。"
-
-    printf "\n${YELLOW}>> 全局差异快照 (类 Git 功能, 可在任何目录运行)${NC}\n"
-    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-create [dir]" "为指定目录(默认当前)创建快照, 作为后续对比的基准。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-diff [dir]" "与快照对比, 找出指定目录(默认当前)下所有变更。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-status [dir]" "检查指定目录(默认当前)的快照状态。"
-    printf "  ${PURPLE}%-26s${NC} %s\n" "snapshot-diff > files.txt" "【推荐用法】将所有新增和修改的文件列表输出到文件。"
+    printf "\n${YELLOW}>> 准备与分析命令 (可在任何目录运行)${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "test-patch <id|file|url>" "【核心】测试补丁兼容性，生成智能冲突分析报告"
+    printf "    ${GREEN}示例:${NC} %s test-patch abcdef123456\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s test-patch /path/to/fix.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s test-patch https://git.kernel.org/.../patch/?id=abc123\n" "$(basename "$0")"
+    printf "\n"
     
-    printf "\n${YELLOW}>> 快照文件列表命令 (基于 kernel_snapshot_tool)${NC}\n"
-    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-changes" "列出所有变更文件 (新增+修改), 适合生成 quilt 文件列表。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-new" "仅列出新增文件。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-modified" "仅列出修改文件。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-clean [force]" "清理快照数据 (force 参数跳过确认)。"
-    printf "  ${PURPLE}%-26s${NC} %s\n" "export-changed-files" "【新功能】导出变更文件到输出目录，保持原目录结构。"
-    printf "  ${PURPLE}%-26s${NC} %s\n" "export-from-file <file>" "【新功能】基于指定文件列表导出文件，使用全局配置的default_workspace_dir作为根目录。"
-
-    printf "\n${YELLOW}>> Quilt 状态查询 (自动查找内核目录)${NC}\n"
-    printf "  ${CYAN}%-26s${NC} %s\n" "status" "显示补丁总体状态 (总数/已应用/未应用)。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "series" "显示所有补丁及状态列表。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "top" "显示当前在最顶层的补丁。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "applied" "仅列出所有已应用的补丁。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "unapplied" "仅列出所有未应用的补丁。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "files" "列出当前补丁所包含的所有文件。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "diff" "显示当前补丁的 diff 内容。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "graph [patch]" "生成补丁依赖关系图 (DOT格式)，可用 Graphviz 可视化。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "graph-pdf [--color] [--all] [patch] [file]" "生成PDF依赖图。--all显示所有补丁(即使无依赖)。"
-
-    printf "\n${YELLOW}>> 快照文件列表命令 (基于 kernel_snapshot_tool)${NC}\n"
-    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-changes" "列出所有变更文件 (新增+修改), 适合生成 quilt 文件列表。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-new" "仅列出新增文件。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-list-modified" "仅列出修改文件。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "snapshot-clean [force]" "清理快照数据 (force 参数跳过确认)。"
-    printf "  ${PURPLE}%-26s${NC} %s\n" "export-changed-files" "【新功能】导出变更文件到输出目录，保持原目录结构。"
-    printf "  ${PURPLE}%-26s${NC} %s\n" "export-from-file <file>" "【新功能】基于指定文件列表导出文件，使用全局配置的default_workspace_dir作为根目录。"
-
-    printf "\n${YELLOW}>> Quilt 队列操作 (自动查找内核目录)${NC}\n"
-    printf "  ${CYAN}%-26s${NC} %s\n" "push" "应用下一个未应用的补丁。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "pop" "撤销最顶层的补丁。"
+    printf "  ${CYAN}%-30s${NC} %s\n" "fetch <id|file|url>" "下载或复制原始补丁到缓存，并打印路径"
+    printf "    ${GREEN}示例:${NC} %s fetch abcdef123456\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s fetch /home/user/my.patch\n" "$(basename "$0")"
+    printf "\n"
     
+    printf "  ${CYAN}%-30s${NC} %s\n" "save <id|file|url> [name]" "保存原始补丁到输出目录供查阅"
+    printf "    ${GREEN}示例:${NC} %s save abcdef123456\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s save /path/to/fix.patch security-fix\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s save https://example.com/patch.patch remote-fix\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "extract-files <id|file|url>" "提取补丁影响的文件列表到 patch_files.txt"
+    printf "    ${GREEN}示例:${NC} %s extract-files abcdef123456\n" "$(basename "$0")"
+    printf "    ${GREEN}输出:${NC} %s/patch_files.txt\n" "$OUTPUT_DIR"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "extract-metadata <id|file|url>" "提取补丁元数据到 patch_metadata.txt"
+    printf "    ${GREEN}示例:${NC} %s extract-metadata abcdef123456\n" "$(basename "$0")"
+    printf "    ${GREEN}输出:${NC} %s/patch_metadata.txt\n" "$OUTPUT_DIR"
+    printf "\n"
+
+    printf "\n${YELLOW}>> 核心补丁操作命令 (自动查找内核目录)${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "create-patch <name>" "创建一个新的空 quilt 补丁"
+    printf "    ${GREEN}示例:${NC} %s create-patch 999-my-security-fix.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s create-patch cve-2024-1234\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "add-files <file_list>" "从文件列表批量添加文件到当前 quilt 补丁"
+    printf "    ${GREEN}示例:${NC} %s add-files patch_files.txt\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s add-files /path/to/my_files.txt\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "refresh" "【标准】刷新补丁，生成纯代码 diff"
+    printf "    ${GREEN}示例:${NC} %s refresh\n" "$(basename "$0")"
+    printf "    ${GREEN}输出:${NC} 补丁文件拷贝到 %s/\n" "$OUTPUT_DIR"
+    printf "\n"
+    
+    printf "  ${PURPLE}%-30s${NC} %s\n" "refresh-with-header <id|file>" "【核心】刷新并注入元数据，生成最终补丁"
+    printf "    ${GREEN}示例:${NC} %s refresh-with-header abcdef123456\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s refresh-with-header /path/to/original.patch\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${GREEN}%-30s${NC} %s\n" "auto-patch <id|file> <name>" "【全自动】执行完整流程 (test→create→add→refresh-with-header)"
+    printf "    ${GREEN}示例:${NC} %s auto-patch abcdef123456 999-auto-fix.patch\n" "$(basename "$0")"
+    printf "\n"
+
+    printf "\n${YELLOW}>> 快速补丁应用命令 (OpenWrt 专用)${NC}\n"
+    printf "  ${PURPLE}%-30s${NC} %s\n" "quick-apply <patch_path>" "【一键应用】复制补丁→删除.prepared→执行make prepare"
+    printf "    ${GREEN}示例:${NC} %s quick-apply /home/user/security-fix.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}说明:${NC} 自动复制到 target/linux/架构/patches/ 并重新准备内核\n"
+    printf "\n"
+
+    printf "\n${YELLOW}>> 全局差异快照命令 (类 Git 功能)${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-create [dir] [project]" "为指定目录创建快照基准"
+    printf "    ${GREEN}示例:${NC} %s snapshot-create\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s snapshot-create /path/to/kernel kernel-project\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-diff [dir]" "与快照对比，找出所有变更"
+    printf "    ${GREEN}示例:${NC} %s snapshot-diff\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s snapshot-diff > changed_files.txt\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-status [dir]" "检查快照状态"
+    printf "    ${GREEN}示例:${NC} %s snapshot-status\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-list-changes" "列出所有变更文件 (新增+修改)"
+    printf "    ${GREEN}示例:${NC} %s snapshot-list-changes\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-list-new" "仅列出新增文件"
+    printf "    ${GREEN}示例:${NC} %s snapshot-list-new\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-list-modified" "仅列出修改文件"
+    printf "    ${GREEN}示例:${NC} %s snapshot-list-modified\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "snapshot-clean [force]" "清理快照数据"
+    printf "    ${GREEN}示例:${NC} %s snapshot-clean\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s snapshot-clean force\n" "$(basename "$0")"
+    printf "\n"
+
+    printf "\n${YELLOW}>> 文件导出命令${NC}\n"
+    printf "  ${PURPLE}%-30s${NC} %s\n" "export-changed-files" "【新功能】导出变更文件到输出目录，保持原目录结构"
+    printf "    ${GREEN}示例:${NC} %s export-changed-files\n" "$(basename "$0")"
+    printf "    ${GREEN}输出:${NC} %s/changed_files/\n" "$OUTPUT_DIR"
+    printf "\n"
+    
+    printf "  ${PURPLE}%-30s${NC} %s\n" "export-from-file <file>" "【新功能】基于指定文件列表导出文件"
+    printf "    ${GREEN}示例:${NC} %s export-from-file my_file_list.txt\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s export-from-file /path/to/files.txt\n" "$(basename "$0")"
+    printf "    ${GREEN}输出:${NC} %s/exported_files/export_timestamp/\n" "$OUTPUT_DIR"
+    printf "\n"
+
+    printf "\n${YELLOW}>> Quilt 状态查询命令 (自动查找内核目录)${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "status" "显示补丁总体状态 (总数/已应用/未应用)"
+    printf "    ${GREEN}示例:${NC} %s status\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "series" "显示所有补丁及状态列表"
+    printf "    ${GREEN}示例:${NC} %s series\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "top" "显示当前在最顶层的补丁"
+    printf "    ${GREEN}示例:${NC} %s top\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "applied" "仅列出所有已应用的补丁"
+    printf "    ${GREEN}示例:${NC} %s applied\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "unapplied" "仅列出所有未应用的补丁"
+    printf "    ${GREEN}示例:${NC} %s unapplied\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "files" "列出当前补丁所包含的所有文件"
+    printf "    ${GREEN}示例:${NC} %s files\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "diff" "显示当前补丁的 diff 内容"
+    printf "    ${GREEN}示例:${NC} %s diff\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s diff > current_patch.diff\n" "$(basename "$0")"
+    printf "\n"
+
+    printf "\n${YELLOW}>> Quilt 队列操作命令 (自动查找内核目录)${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "push [patch]" "应用下一个未应用的补丁，或应用到指定补丁"
+    printf "    ${GREEN}示例:${NC} %s push\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s push platform/specific-patch.patch\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "pop [patch]" "撤销最顶层的补丁，或撤销到指定补丁"
+    printf "    ${GREEN}示例:${NC} %s pop\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s pop platform/specific-patch.patch\n" "$(basename "$0")"
+    printf "\n"
+
+    printf "\n${YELLOW}>> Quilt 补丁编辑命令 (自动查找内核目录)${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "fold <patch_file> [...]" "将补丁文件内容合并到当前补丁中"
+    printf "    ${GREEN}示例:${NC} %s fold /path/to/additional.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s fold patch1.patch patch2.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} cat extra.patch | %s fold -\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "header [patch] [options]" "查看或编辑补丁头部信息（元数据）"
+    printf "    ${GREEN}查看头部:${NC} %s header\n" "$(basename "$0")"
+    printf "    ${GREEN}查看指定:${NC} %s header platform/my-patch.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}追加模式:${NC} %s header -a\n" "$(basename "$0")"
+    printf "    ${GREEN}替换模式:${NC} %s header -r platform/my-patch.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}编辑模式:${NC} %s header -e\n" "$(basename "$0")"
+    printf "    ${GREEN}从文件追加:${NC} %s header -a < description.txt\n" "$(basename "$0")"
+    printf "    ${GREEN}管道追加:${NC} echo \"Signed-off-by: Name <email>\" | %s header -a\n" "$(basename "$0")"
+    printf "\n"
+
+    printf "\n${YELLOW}>> 补丁关系图命令${NC}\n"
+    printf "  ${CYAN}%-30s${NC} %s\n" "graph [patch]" "生成补丁依赖关系图 (DOT格式)"
+    printf "    ${GREEN}示例:${NC} %s graph\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s graph platform/my-patch.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}示例:${NC} %s graph --all > all_patches.dot\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "graph-pdf [options] [patch] [file]" "生成PDF补丁依赖关系图"
+    printf "    ${GREEN}基本使用:${NC} %s graph-pdf\n" "$(basename "$0")"
+    printf "    ${GREEN}彩色图表:${NC} %s graph-pdf --color\n" "$(basename "$0")"
+    printf "    ${GREEN}显示全部:${NC} %s graph-pdf --all\n" "$(basename "$0")"
+    printf "    ${GREEN}彩色全部:${NC} %s graph-pdf --color --all\n" "$(basename "$0")"
+    printf "    ${GREEN}指定补丁:${NC} %s graph-pdf platform/my-patch.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}指定输出:${NC} %s graph-pdf --color platform/patch.patch my_graph\n" "$(basename "$0")"
+    printf "    ${GREEN}输出位置:${NC} %s/patches_graph.pdf (默认)\n" "$OUTPUT_DIR"
+    printf "\n"
+
     printf "\n${YELLOW}>> 环境与辅助命令${NC}\n"
-    printf "  ${CYAN}%-26s${NC} %s\n" "clean" "交互式清理缓存和输出目录。"
-    printf "  ${PURPLE}%-26s${NC} %s\n" "distclean" "【一键清理】强制清理快照+重置quilt+清理工作目录，完全还原到原始状态。"
-    printf "  ${RED}%-26s${NC} %s\n" "reset-env" "(危险) 重置内核 quilt 状态, 用于开发测试。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "help, -h, --help" "显示此帮助信息。"
-    printf "  ${CYAN}%-26s${NC} %s\n" "version, -v, --version" "显示脚本版本信息。"
+    printf "  ${CYAN}%-30s${NC} %s\n" "clean" "交互式清理缓存和输出目录"
+    printf "    ${GREEN}示例:${NC} %s clean\n" "$(basename "$0")"
+    printf "\n"
     
-    printf "\n${GREEN}■ export-changed-files 详细用法示例 ■${NC}\n"
+    printf "  ${PURPLE}%-30s${NC} %s\n" "distclean" "【一键清理】强制清理快照+重置quilt+清理工作目录"
+    printf "    ${GREEN}示例:${NC} %s distclean\n" "$(basename "$0")"
+    printf "    ${GREEN}说明:${NC} 完全还原到原始状态，无需确认\n"
+    printf "\n"
+    
+    printf "  ${RED}%-30s${NC} %s\n" "reset-env" "(危险) 重置内核 quilt 状态"
+    printf "    ${GREEN}示例:${NC} %s reset-env\n" "$(basename "$0")"
+    printf "    ${RED}警告:${NC} 会重置所有 quilt 补丁状态，需要确认\n"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "help, -h, --help" "显示此帮助信息"
+    printf "    ${GREEN}示例:${NC} %s help\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "version, -v, --version" "显示脚本版本信息"
+    printf "    ${GREEN}示例:${NC} %s version\n" "$(basename "$0")"
+    printf "\n"
+
+    printf "\n${GREEN}■ 高级用法示例 ■${NC}\n"
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    printf "该功能可将所有变更文件按原目录结构导出，便于代码审查、备份和分享。\n\n"
-    printf "${YELLOW}典型使用流程:${NC}\n"
-    printf "  1. 创建快照基线:     %s ${CYAN}snapshot-create${NC}\n" "$(basename "$0")"
-    printf "  2. 修改内核代码 (添加/修改文件)...\n"
-    printf "  3. 检查变更状态:     %s ${CYAN}snapshot-status${NC}\n" "$(basename "$0")"
-    printf "  4. 导出变更文件:     %s ${PURPLE}export-changed-files${NC}\n\n" "$(basename "$0")"
-    printf "${YELLOW}导出结果示例:${NC}\n"
-    printf "  📁 ${OUTPUT_DIR}/changed_files/\n"
-    printf "  ├── linux-4.1.15/            ${CYAN}# 内核目录 (动态获取)${NC}\n"
-    printf "  │   ├── drivers/net/cve_fix.c ${GREEN}# 新增文件${NC}\n"
-    printf "  │   ├── kernel/Kconfig        ${YELLOW}# 修改文件${NC}\n"
-    printf "  │   └── fs/security/patch.h   ${GREEN}# 新增文件${NC}\n"
-    printf "  └── EXPORT_INDEX.txt          ${CYAN}# 导出索引${NC}\n\n"
-    printf "${YELLOW}适用场景:${NC}\n"
-    printf "  • 📋 代码审查 - 整理所有变更文件\n"
-    printf "  • 💾 补丁备份 - 防止代码丢失\n"
-    printf "  • 👥 团队协作 - 分享具体修改内容\n"
-    printf "  • 🔍 差异分析 - 按目录结构查看变更\n"
+    printf "\n${YELLOW}组合命令示例:${NC}\n"
+    printf "  # 快速测试并应用补丁\n"
+    printf "  %s test-patch abcdef123 && %s quick-apply %s/abcdef123.patch\n" "$(basename "$0")" "$(basename "$0")" "$OUTPUT_DIR"
+    printf "\n"
+    printf "  # 创建快照，修改代码，导出变更\n"
+    printf "  %s snapshot-create && echo \"修改代码...\" && %s export-changed-files\n" "$(basename "$0")" "$(basename "$0")"
+    printf "\n"
+    printf "  # 从多个补丁合并创建新补丁\n"
+    printf "  %s create-patch combined-fix.patch && %s fold patch1.patch && %s fold patch2.patch\n" "$(basename "$0")" "$(basename "$0")" "$(basename "$0")"
+    printf "\n"
+    
+    printf "\n${YELLOW}输出目录结构:${NC}\n"
+    printf "  📁 %s/\n" "$MAIN_WORK_DIR"
+    printf "  ├── 📁 cache/              # 下载的补丁缓存\n"
+    printf "  ├── 📁 outputs/            # 生成的补丁和报告\n"
+    printf "  ├── 📁 changed_files/      # 导出的变更文件\n"
+    printf "  └── 📁 exported_files/     # 基于列表导出的文件\n"
+    printf "\n"
+    
+    printf "${YELLOW}支持的输入格式:${NC}\n"
+    printf "  • Commit ID:  abcdef123456789\n"
+    printf "  • 本地文件:  /path/to/patch.patch 或 ./relative/patch.patch\n"
+    printf "  • 网络地址:  https://git.kernel.org/.../patch/?id=abcdef123\n"
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     printf "\n"
 }
@@ -2453,7 +2598,7 @@ generate_patch_graph_pdf() {
         
         if [[ "$use_colors" == true ]]; then
             log_info ""
-            log_info "�� 颜色图例:"
+            log_info "🎨 颜色图例:"
             log_info "   • 绿色节点: 已应用的补丁"
             log_info "   • 红色节点: 未应用的补丁"
             log_info "   • 灰色节点: 未知状态的补丁"
@@ -2502,6 +2647,8 @@ main() {
         "reset-env") check_dependencies "need_quilt"; reset_env "$@";;
         "status") check_dependencies "need_quilt"; show_quilt_status "$@";;
         "series"|"applied"|"unapplied"|"top"|"files"|"push"|"pop"|"diff")
+            check_dependencies "need_quilt"; run_quilt_command "$command" "$@";;
+        "fold"|"header")
             check_dependencies "need_quilt"; run_quilt_command "$command" "$@";;
         "graph")
             check_dependencies "need_quilt"; run_quilt_graph "$@";;

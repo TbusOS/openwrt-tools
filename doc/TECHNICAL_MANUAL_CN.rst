@@ -4,7 +4,7 @@ OpenWrt 内核补丁管理工具 - 技术手册
 
 :Author: OpenWrt 社区
 :Date: |today|
-:Version: 8.7.0
+:版本: 8.8.0
 
 概述
 ====
@@ -519,6 +519,78 @@ quilt_patch_manager_final.sh 命令
       - **选项补全**: --color, --all, force等命令特定选项
       - **文件补全**: 自动发现工作目录和OpenWrt补丁目录中的文件
       - **路径补全**: 针对不同命令类型提供智能路径建议
+
+补丁编辑操作
+============
+
+fold - 合并外部补丁
+------------------
+
+``fold`` 命令用于将外部补丁文件的内容合并到当前顶层补丁中。
+
+**语法格式**::
+
+    ./quilt_patch_manager_final.sh fold <patch-file>
+
+**使用示例**::
+
+    # 合并外部下载的补丁
+    ./quilt_patch_manager_final.sh fold external-cve-fix.patch
+    
+    # 合并多个补丁到当前补丁
+    ./quilt_patch_manager_final.sh fold patch1.patch
+    ./quilt_patch_manager_final.sh fold patch2.patch
+
+**应用场景**:
+
+- 整合从网络下载的CVE修复补丁
+- 合并同事提供的补丁文件
+- 将多个小补丁合并为一个大补丁
+
+**注意事项**:
+
+- 使用前必须有当前的顶层补丁
+- 外部补丁格式需要兼容
+- 可能需要手动解决冲突
+
+header - 补丁头部信息管理
+-----------------------
+
+``header`` 命令用于查看和编辑补丁的头部信息（元数据）。
+
+**语法格式**::
+
+    ./quilt_patch_manager_final.sh header [选项] [补丁名]
+
+**选项说明**:
+
+- ``-e``: 使用编辑器编辑头部信息
+- ``-a``: 追加内容到头部
+- ``-r``: 替换头部内容
+
+**使用示例**::
+
+    # 查看当前补丁头部信息
+    ./quilt_patch_manager_final.sh header
+    
+    # 查看指定补丁头部信息
+    ./quilt_patch_manager_final.sh header platform/cve-fix.patch
+    
+    # 编辑当前补丁头部
+    ./quilt_patch_manager_final.sh header -e
+    
+    # 追加签名信息
+    echo "Signed-off-by: Your Name <email@example.com>" | ./quilt_patch_manager_final.sh header -a
+    
+    # 从文件替换头部信息
+    ./quilt_patch_manager_final.sh header -r < new-description.txt
+
+**应用场景**:
+
+- 为补丁添加详细描述和作者信息
+- 修正补丁中的错误信息
+- 添加Signed-off-by等标准元数据
+- 更新补丁版本和修改记录
 
 性能特征
 ========

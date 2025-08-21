@@ -4,6 +4,43 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [8.8.0] - 2025-01-13
+
+### 🔧 Quilt补丁编辑增强版本 (Quilt Patch Editing Enhancement Version)
+
+#### 新增功能 (Added)
+- 🔗 **新增 `fold` 命令**: 支持将外部补丁文件合并到当前补丁中
+  - 可直接合并从网络下载的补丁文件
+  - 支持多个补丁的合并操作
+  - 自动处理补丁格式兼容性
+- 📝 **新增 `header` 命令**: 完整的补丁头部信息管理
+  - 查看补丁头部信息：`header [patch-name]`
+  - 编辑头部信息：`header -e [patch-name]`
+  - 追加信息：`header -a [patch-name]`
+  - 替换信息：`header -r [patch-name]`
+  - 支持管道和文件输入
+- 🛠️ **新增CVE批量下载工具**: `tools/download_monthly_cve.sh`
+  - 基于Ubuntu CVE Tracker自动查找Linux内核CVE
+  - 支持按年月批量下载CVE补丁
+  - 自动从官方Git仓库获取补丁文件
+  - 生成详细的下载报告和统计信息
+
+#### 改进功能 (Improved)
+- 🔢 **版本号更新**: 将脚本版本号更新到 v8.8.0
+- 🔤 **自动补全增强**: 为 `fold` 和 `header` 命令添加智能补全支持
+- 🎨 **修复图形生成显示**: 更正了 `graph-pdf` 命令中的颜色图例显示问题
+- 📚 **文档结构优化**: 将Quilt命令参考手册迁移到标准目录结构
+
+#### 新增文档 (Documentation)
+- 📖 **专用使用指南**: `doc/FOLD_HEADER_USAGE.md` - 详细的 `fold` 和 `header` 命令使用指南
+- 🎯 **实际应用场景**: 包含完整的命令示例和最佳实践指导
+- 📁 **标准化目录**: Quilt命令参考手册移动到 `doc/03_reference_manuals/` 目录
+
+#### 技术细节 (Technical Details)
+- **命令扩展架构**: 在主命令处理器中添加 `fold` 和 `header` 支持
+- **自动补全框架**: 扩展补全函数支持新命令的智能提示
+- **文档组织**: 按功能分类整理文档结构，提升可维护性
+
 ## [8.7.0] - 2025-01-13
 
 ### 🚀 Bash自动补全增强版本 (Bash Auto-completion Enhancement Version)

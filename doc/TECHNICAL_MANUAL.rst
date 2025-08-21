@@ -4,7 +4,7 @@ OpenWrt Kernel Patch Management Tools - Technical Manual
 
 :Author: OpenWrt Community
 :Date: |today|
-:Version: 8.7.0
+:Version: 8.8.0
 
 Overview
 ========
@@ -802,3 +802,75 @@ For additional support and updates, please refer to the project repository
 and community documentation.
 
 .. |today| date::
+
+Patch Editing Operations
+========================
+
+fold - Merge External Patches
+-----------------------------
+
+The ``fold`` command is used to merge the contents of external patch files into the current top patch.
+
+**Syntax**::
+
+    ./quilt_patch_manager_final.sh fold <patch-file>
+
+**Usage Examples**::
+
+    # Merge externally downloaded patch
+    ./quilt_patch_manager_final.sh fold external-cve-fix.patch
+    
+    # Merge multiple patches into current patch
+    ./quilt_patch_manager_final.sh fold patch1.patch
+    ./quilt_patch_manager_final.sh fold patch2.patch
+
+**Use Cases**:
+
+- Integrate CVE fix patches downloaded from the internet
+- Merge patch files provided by colleagues
+- Combine multiple small patches into one large patch
+
+**Important Notes**:
+
+- Must have a current top patch before use
+- External patch format needs to be compatible
+- May require manual conflict resolution
+
+header - Patch Header Information Management
+-------------------------------------------
+
+The ``header`` command is used to view and edit patch header information (metadata).
+
+**Syntax**::
+
+    ./quilt_patch_manager_final.sh header [options] [patch-name]
+
+**Options**:
+
+- ``-e``: Edit header information using an editor
+- ``-a``: Append content to header
+- ``-r``: Replace header content
+
+**Usage Examples**::
+
+    # View current patch header information
+    ./quilt_patch_manager_final.sh header
+    
+    # View specified patch header information
+    ./quilt_patch_manager_final.sh header platform/cve-fix.patch
+    
+    # Edit current patch header
+    ./quilt_patch_manager_final.sh header -e
+    
+    # Append signature information
+    echo "Signed-off-by: Your Name <email@example.com>" | ./quilt_patch_manager_final.sh header -a
+    
+    # Replace header information from file
+    ./quilt_patch_manager_final.sh header -r < new-description.txt
+
+**Use Cases**:
+
+- Add detailed descriptions and author information to patches
+- Correct incorrect information in patches
+- Add standard metadata like Signed-off-by
+- Update patch versions and modification records

@@ -18,6 +18,7 @@ _quilt_patch_manager_complete() {
         export-changed-files export-from-file
         distclean clean reset-env
         status series applied unapplied top files push pop diff
+        fold header
         graph graph-pdf
         help version
     "
@@ -70,6 +71,20 @@ _quilt_patch_manager_complete() {
         graph)
             # graph 命令可以补全补丁名称
             _complete_patch_files
+            return 0
+            ;;
+        fold)
+            # fold 命令需要补全补丁文件
+            _complete_patch_files
+            return 0
+            ;;
+        header)
+            # header 命令可以补全补丁名称和选项
+            if [[ ${cur} == -* ]]; then
+                COMPREPLY=($(compgen -W "-a -r -e" -- ${cur}))
+            else
+                _complete_patch_files
+            fi
             return 0
             ;;
         *)
