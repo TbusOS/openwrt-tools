@@ -1,5 +1,5 @@
 #!/bin/bash
-# 版本: v8.11.0 (补丁合并功能版)
+# 版本: v8.12.0 (冲突分析增强版)
 
 # --- 全局变量与初始化 ---
 # 获取脚本所在目录的绝对路径，确保路径引用的健壮性
@@ -27,7 +27,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
-VERSION="8.11.0"
+VERSION="8.12.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
@@ -1002,6 +1002,15 @@ analyze_patch_conflicts_v7() {
         local hunk_details
         hunk_details=$(awk -v target_file="$file" -v target_hunk="$hunk_num" '
             BEGIN { hunk_counter=0; in_target_diff=0; in_target_hunk=0; }
+            /^Index: / {
+                current_file = gensub(/^Index: [^\/]*\/(.+)$/, "\\1", 1);
+                if (current_file == target_file) {
+                    in_target_diff = 1;
+                    hunk_counter = 0;
+                } else {
+                    in_target_diff = 0;
+                }
+            }
             /^diff --git a\/(.+) b\// {
                 current_file = gensub(/^diff --git a\/(.+) b\/.*/, "\\1", 1);
                 if (current_file == target_file) {
@@ -1056,7 +1065,7 @@ analyze_patch_conflicts_v7() {
         local local_source_file="$kernel_source_dir/$file"
         local actual_code=""
         if [[ -f "$local_source_file" ]]; then
-            actual_code=$(tail -n "+$start_line" "$local_source_file" | head -n "$num_lines_to_read")
+            actual_code=$(tail -n +$start_line "$local_source_file" | head -n "$num_lines_to_read")
         else
             actual_code="错误: 找不到本地源码文件: $local_source_file\n这可能是因为文件名在高低版本内核中已改变。"
         fi

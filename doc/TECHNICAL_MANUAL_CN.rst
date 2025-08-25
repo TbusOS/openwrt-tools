@@ -4,7 +4,7 @@ OpenWrt 内核补丁管理工具 - 技术手册
 
 :Author: OpenWrt 社区
 :Date: |today|
-:版本: 8.11.0
+:版本: 8.12.0
 
 概述
 ====

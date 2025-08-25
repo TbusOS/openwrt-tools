@@ -4,6 +4,30 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [8.12.0] - 2025-01-13
+
+### 🔍 冲突分析增强版 (Enhanced Conflict Analysis)
+
+#### 功能增强 (Enhanced)
+- 🧩 **冲突分析优化**: 增强了 `analyze_patch_conflicts_v7()` 函数的补丁解析能力
+  - 新增对 `Index:` 格式补丁头部的支持，提高补丁文件识别准确性
+  - 优化了文件路径提取逻辑，支持多种补丁格式的文件名解析
+  - 改进了代码块定位算法，确保冲突分析的精确性
+  - 修复了 `tail` 命令语法问题，提高了跨平台兼容性
+
+#### 技术实现 (Technical)
+- 🔧 **补丁格式支持**: 扩展对不同补丁格式的解析支持
+  - Git格式: `diff --git a/file b/file`
+  - Index格式: `Index: package/file`
+  - 传统格式: `--- file.orig` 和 `+++ file`
+- 📊 **代码行定位**: 改进了源码文件的行号定位逻辑
+- ⚡ **性能优化**: 优化了大型补丁文件的处理性能
+
+#### Bug修复 (Fixed)
+- 🐛 修复 `tail -n "+$start_line"` 在某些系统上的兼容性问题
+- 🔧 解决补丁文件路径识别在复杂格式下的失效问题
+- 📝 改进错误提示信息的准确性和可读性
+
 ## [8.11.0] - 2025-01-13
 
 ### 🔗 补丁合并功能版 (Patch Merging Feature)
