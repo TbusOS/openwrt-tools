@@ -18,7 +18,7 @@ _quilt_patch_manager_complete() {
         export-changed-files export-from-file
         distclean clean reset-env
         status series applied unapplied top files push pop diff
-        fold header
+        fold header merge-patches
         graph graph-pdf
         help help-cn help-en version
     "

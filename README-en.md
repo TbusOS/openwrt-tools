@@ -1,8 +1,15 @@
-# OpenWrt Kernel CVE Patch Creation Toolchain v8.10.0
+# OpenWrt Kernel CVE Patch Creation Toolchain v8.11.0
 
 A **hybrid architecture high-performance patch management platform** designed specifically for OpenWrt developers. v8.7 builds on v8.6 with **Bash Auto-completion Feature**.
 
 ## 🚀 Version Update History
+
+### v8.11.0 - Patch Merging Feature Version
+- **Patch Merge Command**: Added `merge-patches` command to merge two Git-format patches
+- **Smart Metadata Processing**: Preserves complete header information from first patch as base
+- **diff Content Merging**: Fully merges diff sections from both patches
+- **Statistics Display**: Shows file count statistics before and after merging
+- **Automatic Output Management**: Generates timestamped merged filenames
 
 ### v8.10.0 - Patch Parsing Enhancement Version
 - **Universal Patch File Extraction Function**: Added unified parsing function supporting multiple diff formats
@@ -319,27 +326,27 @@ cd tools/kernel_snapshot_tool
 
 ## 🆚 Version Comparison
 
-| Feature | v7.0.0 (Final Stable) | v8.0.0 (Hybrid Architecture High-Performance) | v8.6.0 (New Commands Feature) | v8.7.0 (Bash Auto-completion) | v8.9.0 (Internationalization Enhancement) | v8.10.0 (Patch Parsing Enhancement) |
-|---------|------------------------|-----------------------------------------------|------------------------------|-------------------------------|---------------------------------------------|---------------------------------------------|
-| **Positioning** | Enterprise Management Platform | Hybrid Architecture High-Performance Patch Management Platform | New Commands Feature Patch Management Platform | Bash Auto-completion Patch Management Platform | Internationalization Enhancement Patch Management Platform | Patch Parsing Enhancement Patch Management Platform |
-| **Lines of Code** | 927 lines | 1202 lines (+275 lines) | 1759 lines (+557 lines) | 1865 lines (+106 lines) | 2077 lines (+212 lines) | 2116 lines (+39 lines) |
-| **Core Feature** | Smart Conflict Analysis v7.0 | Git-style Snapshot System + Hybrid Input Architecture | + quick-apply + graph Commands + Visual Analysis | + Bash Auto-completion System | + Bilingual Chinese-English Help System | + Universal Patch File Extraction Function |
-| **Configuration Integration** | None | Basic Support | Smart Global Configuration File Reading | Smart Global Configuration File Reading | Smart Global Configuration File Reading | Smart Global Configuration File Reading |
-| **Error Handling** | Basic | Improved Error Messages | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions |
-| **File Export** | None | None | export-from-file + Session Management | export-from-file + Session Management | export-from-file + Session Management | export-from-file + Session Management |
-| **URL Support** | None | None | HTTPS/HTTP URL Download + Cache | HTTPS/HTTP URL Download + Cache | HTTPS/HTTP URL Download + Cache | HTTPS/HTTP URL Download + Cache |
-| **Input Support** | Commit ID only | Commit ID + Local Files (Hybrid Input) | Triple Input + File List Export | Triple Input + File List Export | Triple Input + File List Export | Triple Input + File List Export |
-| **Snapshot Cleanup** | None | Basic clean Command | snapshot-clean + Force Mode | snapshot-clean + Force Mode | snapshot-clean + Force Mode | snapshot-clean + Force Mode |
-| **Graphical Analysis** | None | None | graph + graph-pdf Commands | graph + graph-pdf Commands | graph + graph-pdf Commands | graph + graph-pdf Commands |
-| **Auto-completion** | None | None | None | Complete Bash Auto-completion System | Complete Bash Auto-completion System | Complete Bash Auto-completion System |
-| **Patch Editing** | Basic quilt Commands | Basic quilt Commands | fold/header Editing Commands | fold/header Editing Commands | fold/header Editing Commands | fold/header Editing Commands |
-| **Help System** | Chinese Help Only | Chinese Help Only | Chinese Help Only | Chinese Help Only | Bilingual Chinese-English Help System | Bilingual Chinese-English Help System |
-| **Change Tracking** | None | Git-style Global Snapshot System | Git-style Global Snapshot System | Git-style Global Snapshot System | Git-style Global Snapshot System | Git-style Global Snapshot System |
-| **Performance Optimization** | Bash Optimization | C Assistant Tool + Parallel Processing | C Assistant Tool + Parallel Processing | C Assistant Tool + Parallel Processing | C Assistant Tool + Parallel Processing | C Assistant Tool + Parallel Processing |
-| **Cross-platform Compatibility** | Basic Support | Enhanced macOS/Linux Compatibility | Enhanced macOS/Linux Compatibility | Enhanced macOS/Linux Compatibility | Enhanced macOS/Linux Compatibility | Enhanced macOS/Linux Compatibility |
-| **Progress Feedback** | Basic | Real-time Progress Bar + Dynamic Display | Real-time Progress Bar + Dynamic Display | Real-time Progress Bar + Dynamic Display | Real-time Progress Bar + Dynamic Display | Real-time Progress Bar + Dynamic Display |
-| **Code Review Support** | None | None | File List Export + Directory Structure Preservation | File List Export + Directory Structure Preservation | File List Export + Directory Structure Preservation | File List Export + Directory Structure Preservation |
-| **Use Cases** | Enterprise Team Collaboration | Large Projects + Enterprise Development Teams | Quick Application + Visual Analysis | Command Line Efficiency + User Experience | International Teams + Community Promotion | Multi-format Compatibility + Patch Parsing Optimization |
+| Feature | v7.0.0 (Final Stable) | v8.0.0 (Hybrid Architecture High-Performance) | v8.6.0 (New Commands Feature) | v8.7.0 (Bash Auto-completion) | v8.9.0 (Internationalization Enhancement) | v8.10.0 (Patch Parsing Enhancement) | v8.11.0 (Patch Merging Feature) |
+|---------|------------------------|-----------------------------------------------|------------------------------|-------------------------------|---------------------------------------------|---------------------------------------------|------------------------------|
+| **Positioning** | Enterprise Management Platform | Hybrid Architecture High-Performance Patch Management Platform | New Commands Feature Patch Management Platform | Bash Auto-completion Patch Management Platform | Internationalization Enhancement Patch Management Platform | Patch Parsing Enhancement Patch Management Platform | Patch Merging Feature Patch Management Platform |
+| **Lines of Code** | 927 lines | 1202 lines (+275 lines) | 1759 lines (+557 lines) | 1865 lines (+106 lines) | 2077 lines (+212 lines) | 2116 lines (+39 lines) | 3088 lines (+972 lines) |
+| **Core Feature** | Smart Conflict Analysis v7.0 | Git-style Snapshot System + Hybrid Input Architecture | + quick-apply + graph Commands + Visual Analysis | + Bash Auto-completion System | + Bilingual Chinese-English Help System | + Universal Patch File Extraction Function | + merge-patches Patch Merging Command |
+| **Configuration Integration** | None | Basic Support | Smart Global Configuration File Reading | Smart Global Configuration File Reading | Smart Global Configuration File Reading | Smart Global Configuration File Reading | Smart Global Configuration File Reading |
+| **Error Handling** | Basic | Improved Error Messages | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions |
+| **File Export** | None | None | export-from-file + Session Management | export-from-file + Session Management | export-from-file + Session Management | export-from-file + Session Management | export-from-file + Session Management |
+| **URL Support** | None | None | HTTPS/HTTP URL Download + Cache | HTTPS/HTTP URL Download + Cache | HTTPS/HTTP URL Download + Cache | HTTPS/HTTP URL Download + Cache | HTTPS/HTTP URL Download + Cache |
+| **Input Support** | Commit ID only | Commit ID + Local Files (Hybrid Input) | Triple Input + File List Export | Triple Input + File List Export | Triple Input + File List Export | Triple Input + File List Export | Triple Input + File List Export |
+| **Snapshot Cleanup** | None | Basic clean Command | snapshot-clean + Force Mode | snapshot-clean + Force Mode | snapshot-clean + Force Mode | snapshot-clean + Force Mode | snapshot-clean + Force Mode |
+| **Graphical Analysis** | None | None | graph + graph-pdf Commands | graph + graph-pdf Commands | graph + graph-pdf Commands | graph + graph-pdf Commands | graph + graph-pdf Commands |
+| **Auto-completion** | None | None | None | Complete Bash Auto-completion System | Complete Bash Auto-completion System | Complete Bash Auto-completion System | Complete Bash Auto-completion System |
+| **Patch Editing** | Basic quilt Commands | Basic quilt Commands | fold/header Editing Commands | fold/header Editing Commands | fold/header Editing Commands | fold/header Editing Commands | fold/header + merge-patches |
+| **Help System** | Chinese Help Only | Chinese Help Only | Chinese Help Only | Chinese Help Only | Bilingual Chinese-English Help System | Bilingual Chinese-English Help System | Bilingual Chinese-English Help System |
+| **Change Tracking** | None | Git-style Global Snapshot System | Git-style Global Snapshot System | Git-style Global Snapshot System | Git-style Global Snapshot System | Git-style Global Snapshot System | Git-style Global Snapshot System |
+| **Performance Optimization** | Bash Optimization | C Assistant Tool + Parallel Processing | C Assistant Tool + Parallel Processing | C Assistant Tool + Parallel Processing | C Assistant Tool + Parallel Processing | C Assistant Tool + Parallel Processing | C Assistant Tool + Parallel Processing |
+| **Cross-platform Compatibility** | Basic Support | Enhanced macOS/Linux Compatibility | Enhanced macOS/Linux Compatibility | Enhanced macOS/Linux Compatibility | Enhanced macOS/Linux Compatibility | Enhanced macOS/Linux Compatibility | Enhanced macOS/Linux Compatibility |
+| **Progress Feedback** | Basic | Real-time Progress Bar + Dynamic Display | Real-time Progress Bar + Dynamic Display | Real-time Progress Bar + Dynamic Display | Real-time Progress Bar + Dynamic Display | Real-time Progress Bar + Dynamic Display | Real-time Progress Bar + Dynamic Display |
+| **Code Review Support** | None | None | File List Export + Directory Structure Preservation | File List Export + Directory Structure Preservation | File List Export + Directory Structure Preservation | File List Export + Directory Structure Preservation | File List Export + Directory Structure Preservation |
+| **Use Cases** | Enterprise Team Collaboration | Large Projects + Enterprise Development Teams | Quick Application + Visual Analysis | Command Line Efficiency + User Experience | International Teams + Community Promotion | Multi-format Compatibility + Patch Parsing Optimization | Patch Merging + Workflow Optimization |
 
 ## 🌟 v8.1 New Advantages
 

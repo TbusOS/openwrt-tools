@@ -1,5 +1,5 @@
 #!/bin/bash
-# 版本: v8.10.0 (版本同步更新)
+# 版本: v8.11.0 (补丁合并功能版)
 
 # --- 全局变量与初始化 ---
 # 获取脚本所在目录的绝对路径，确保路径引用的健壮性
@@ -27,7 +27,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
-VERSION="8.10.0"
+VERSION="8.11.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
@@ -252,6 +252,11 @@ print_help() {
     printf "    ${GREEN}示例:${NC} %s fold /path/to/additional.patch\n" "$(basename "$0")"
     printf "    ${GREEN}示例:${NC} %s fold patch1.patch patch2.patch\n" "$(basename "$0")"
     printf "    ${GREEN}示例:${NC} cat extra.patch | %s fold -\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "merge-patches <patch1> <patch2>" "合并两个git格式补丁为一个新补丁"
+    printf "    ${GREEN}示例:${NC} %s merge-patches patch1.patch patch2.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}输出:${NC} %s/merged_patches_YYYYMMDD_HHMMSS.patch\n" "$OUTPUT_DIR"
     printf "\n"
     
     printf "  ${CYAN}%-30s${NC} %s\n" "header [patch] [options]" "查看或编辑补丁头部信息（元数据）"
@@ -513,6 +518,11 @@ print_help_en() {
     printf "    ${GREEN}Example:${NC} %s fold /path/to/additional.patch\n" "$(basename "$0")"
     printf "    ${GREEN}Example:${NC} %s fold patch1.patch patch2.patch\n" "$(basename "$0")"
     printf "    ${GREEN}Example:${NC} cat extra.patch | %s fold -\n" "$(basename "$0")"
+    printf "\n"
+    
+    printf "  ${CYAN}%-30s${NC} %s\n" "merge-patches <patch1> <patch2>" "Merge two git-format patches into a new patch"
+    printf "    ${GREEN}Example:${NC} %s merge-patches patch1.patch patch2.patch\n" "$(basename "$0")"
+    printf "    ${GREEN}Output:${NC} %s/merged_patches_YYYYMMDD_HHMMSS.patch\n" "$OUTPUT_DIR"
     printf "\n"
     
     printf "  ${CYAN}%-30s${NC} %s\n" "header [patch] [options]" "View or edit patch header information (metadata)"
@@ -1101,6 +1111,101 @@ analyze_patch_conflicts_v7() {
         } >> "$final_report_file"
 
     done
+}
+
+# 合并两个git格式补丁为一个新补丁
+merge_git_patches() {
+    local patch1="$1"
+    local patch2="$2"
+    
+    if [[ -z "$patch1" || -z "$patch2" ]]; then
+        log_error "请提供两个补丁文件路径"
+        log_info "用法: $0 merge-patches <patch1> <patch2>"
+        log_info "示例: $0 merge-patches a.patch b.patch"
+        log_info "输出: $ORIGINAL_PWD/$OUTPUT_DIR/merged_patches_YYYYMMDD_HHMMSS.patch"
+        return 1
+    fi
+    
+    if [[ ! -f "$patch1" ]]; then
+        log_error "补丁文件不存在: $patch1"
+        return 1
+    fi
+    
+    if [[ ! -f "$patch2" ]]; then
+        log_error "补丁文件不存在: $patch2"
+        return 1
+    fi
+    
+    log_info "合并补丁: $patch1 + $patch2"
+    
+    # 创建临时目录
+    local temp_dir
+    temp_dir=$(mktemp -d "$ORIGINAL_PWD/$SESSION_TMP_DIR_PATTERN/merge_patches.XXXXXX")
+    
+    # 提取第一个补丁的元数据和diff
+    local patch1_header="$temp_dir/patch1_header.txt"
+    local patch1_diff="$temp_dir/patch1_diff.txt"
+    local patch2_diff="$temp_dir/patch2_diff.txt"
+    
+    # 分离补丁头部和diff部分
+    awk '/^diff --git/ {found_diff=1} !found_diff {print}' "$patch1" > "$patch1_header"
+    awk '/^diff --git/ {found_diff=1} found_diff {print}' "$patch1" > "$patch1_diff"
+    awk '/^diff --git/ {found_diff=1} found_diff {print}' "$patch2" > "$patch2_diff"
+    
+    # 生成合并后的补丁内容的函数
+    local merged_content="$temp_dir/merged.patch"
+    
+    # 生成合并后的补丁
+    {
+        # 输出第一个补丁的头部（作为基础）
+        cat "$patch1_header"
+        
+        # 添加合并信息到Subject
+        echo ""
+        echo "Combined with second patch:"
+        head -20 "$patch2" | grep -E "^(From|Date|Subject):" | sed 's/^/  /'
+        echo ""
+        echo "---"
+        
+        # 合并diff部分
+        cat "$patch1_diff"
+        if [[ -s "$patch2_diff" ]]; then
+            echo ""
+            cat "$patch2_diff"
+        fi
+    } > "$merged_content"
+    
+    # 自动生成输出文件名
+    local timestamp=$(date +"%Y%m%d_%H%M%S")
+    local output_file="$ORIGINAL_PWD/$OUTPUT_DIR/merged_patches_${timestamp}.patch"
+    
+    # 确保输出目录存在
+    mkdir -p "$ORIGINAL_PWD/$OUTPUT_DIR"
+    cp "$merged_content" "$output_file"
+    log_success "合并补丁已保存到: $output_file"
+    
+    # 显示统计信息
+    local total_files=$(grep -c "^diff --git" "$output_file" 2>/dev/null || echo "0")
+    local patch1_files=$(grep -c "^diff --git" "$patch1" 2>/dev/null || echo "0")
+    local patch2_files=$(grep -c "^diff --git" "$patch2" 2>/dev/null || echo "0")
+    
+    log_info "合并统计:"
+    log_info "  补丁1: $patch1_files 个文件"
+    log_info "  补丁2: $patch2_files 个文件"
+    log_info "  合并后: $total_files 个文件"
+    
+    # 显示文件内容摘要
+    local patch1_name=$(basename "$patch1")
+    local patch2_name=$(basename "$patch2")
+    log_info "合并内容:"
+    log_info "  基础补丁: $patch1_name"
+    log_info "  附加补丁: $patch2_name"
+    log_info "  输出文件: $(basename "$output_file")"
+    
+    # 清理临时文件
+    rm -rf "$temp_dir"
+    
+    return 0
 }
 
 
@@ -2959,6 +3064,8 @@ main() {
             check_dependencies "need_quilt"; run_quilt_command "$command" "$@";;
         "fold"|"header")
             check_dependencies "need_quilt"; run_quilt_command "$command" "$@";;
+        "merge-patches")
+            merge_git_patches "$@";;
         "graph")
             check_dependencies "need_quilt"; run_quilt_graph "$@";;
         "graph-pdf")

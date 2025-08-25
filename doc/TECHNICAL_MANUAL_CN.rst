@@ -4,7 +4,7 @@ OpenWrt 内核补丁管理工具 - 技术手册
 
 :Author: OpenWrt 社区
 :Date: |today|
-:版本: 8.10.0
+:版本: 8.11.0
 
 概述
 ====
@@ -591,6 +591,61 @@ header - 补丁头部信息管理
 - 修正补丁中的错误信息
 - 添加Signed-off-by等标准元数据
 - 更新补丁版本和修改记录
+
+merge-patches - 合并Git格式补丁
+-----------------------------
+
+``merge-patches`` 命令用于将两个Git格式的补丁文件合并为一个新的补丁文件。
+
+**语法格式**::
+
+    ./quilt_patch_manager_final.sh merge-patches <patch1> <patch2>
+
+**参数说明**:
+
+- ``patch1``: 第一个补丁文件（作为基础补丁）
+- ``patch2``: 第二个补丁文件（附加补丁）
+
+**使用示例**::
+
+    # 合并两个CVE修复补丁
+    ./quilt_patch_manager_final.sh merge-patches cve-2023-1234.patch cve-2023-5678.patch
+    
+    # 合并功能补丁和修复补丁
+    ./quilt_patch_manager_final.sh merge-patches feature-add.patch bugfix.patch
+    
+    # 输出示例: patch_manager_work/output/merged_patches_20250113_143052.patch
+
+**功能特性**:
+
+- **元数据保留**: 保留第一个补丁的完整头部信息（From、Date、Subject等）
+- **智能合并**: 自动合并两个补丁的diff内容
+- **时间戳命名**: 自动生成带时间戳的输出文件名
+- **统计信息**: 显示合并前后的文件数量统计
+- **双语支持**: 完整的中英文错误提示和帮助信息
+
+**输出格式**::
+
+    输出文件: patch_manager_work/output/merged_patches_YYYYMMDD_HHMMSS.patch
+    
+    合并统计:
+      补丁1: X 个文件
+      补丁2: Y 个文件  
+      合并后: Z 个文件
+
+**应用场景**:
+
+- 合并相关的CVE修复补丁
+- 将功能补丁与后续修复补丁组合
+- 整合多个开发者的补丁贡献
+- 创建包含多个改动的综合补丁
+
+**注意事项**:
+
+- 仅支持Git格式的补丁文件
+- 输出补丁保留第一个补丁的元数据作为基础
+- 第二个补丁的关键信息会添加到合并说明中
+- 自动处理临时文件的创建和清理
 
 帮助与文档命令
 ============

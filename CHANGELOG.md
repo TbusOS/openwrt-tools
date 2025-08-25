@@ -4,6 +4,33 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [8.11.0] - 2025-01-13
+
+### 🔗 补丁合并功能版 (Patch Merging Feature)
+
+#### 新增功能 (Added)
+- 🧩 **补丁合并命令**: 新增 `merge-patches` 命令，支持合并两个Git格式补丁
+  - 命令语法: `merge-patches <patch1> <patch2>`
+  - 智能合并Git补丁的元数据和diff内容
+  - 自动生成带时间戳的输出文件名
+  - 保留第一个补丁的完整头部信息作为基础
+  - 添加第二个补丁的关键信息到合并说明中
+  - 支持统计显示合并前后的文件数量
+
+#### 功能特性 (Features)
+- 📝 **元数据处理**: 保留第一个补丁的From、Date、Subject等信息
+- 🔄 **diff合并**: 将两个补丁的diff部分完整合并
+- 📊 **统计信息**: 显示合并前后的文件变更统计
+- 🎯 **输出管理**: 自动输出到 `patch_manager_work/output/` 目录
+- 📱 **双语支持**: 中英文帮助信息完整支持
+- 🧹 **临时文件**: 自动清理合并过程中的临时文件
+
+#### 技术实现 (Technical)
+- 🔧 **函数实现**: `merge_git_patches()` 函数处理完整合并逻辑
+- 📋 **命令调度**: 在主命令调度器中集成 `merge-patches` 命令
+- 🗂️ **文件分离**: 使用awk智能分离补丁头部和diff部分
+- ⚡ **错误处理**: 完善的输入验证和错误提示机制
+
 ## [8.10.0] - 2025-01-13
 
 ### 📦 版本同步更新 (Version Synchronization Update)

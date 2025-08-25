@@ -4,7 +4,7 @@ OpenWrt Kernel Patch Management Tools - Technical Manual
 
 :Author: OpenWrt Community
 :Date: |today|
-:Version: 8.10.0
+:Version: 8.11.0
 
 Overview
 ========
@@ -874,6 +874,61 @@ The ``header`` command is used to view and edit patch header information (metada
 - Correct incorrect information in patches
 - Add standard metadata like Signed-off-by
 - Update patch versions and modification records
+
+merge-patches - Merge Git Format Patches
+-----------------------------------------
+
+The ``merge-patches`` command merges two Git-format patch files into a new patch file.
+
+**Syntax**::
+
+    ./quilt_patch_manager_final.sh merge-patches <patch1> <patch2>
+
+**Parameters**:
+
+- ``patch1``: First patch file (as base patch)
+- ``patch2``: Second patch file (additional patch)
+
+**Usage Examples**::
+
+    # Merge two CVE fix patches
+    ./quilt_patch_manager_final.sh merge-patches cve-2023-1234.patch cve-2023-5678.patch
+    
+    # Merge feature patch with bugfix patch
+    ./quilt_patch_manager_final.sh merge-patches feature-add.patch bugfix.patch
+    
+    # Output example: patch_manager_work/output/merged_patches_20250113_143052.patch
+
+**Features**:
+
+- **Metadata Preservation**: Preserves complete header information from the first patch (From, Date, Subject, etc.)
+- **Smart Merging**: Automatically merges diff content from both patches
+- **Timestamp Naming**: Automatically generates timestamped output filenames
+- **Statistics Display**: Shows file count statistics before and after merging
+- **Bilingual Support**: Complete Chinese and English error messages and help information
+
+**Output Format**::
+
+    Output file: patch_manager_work/output/merged_patches_YYYYMMDD_HHMMSS.patch
+    
+    Merge Statistics:
+      Patch 1: X files
+      Patch 2: Y files  
+      Merged: Z files
+
+**Use Cases**:
+
+- Merge related CVE fix patches
+- Combine feature patches with subsequent fix patches
+- Integrate patch contributions from multiple developers
+- Create comprehensive patches containing multiple changes
+
+**Notes**:
+
+- Only supports Git-format patch files
+- Output patch retains first patch's metadata as base
+- Key information from second patch is added to merge description
+- Automatically handles temporary file creation and cleanup
 
 Help and Documentation Commands
 ===============================
