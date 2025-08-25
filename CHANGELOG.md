@@ -4,6 +4,33 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
+## [8.10.0] - 2025-01-13
+
+### 📦 版本同步更新 (Version Synchronization Update)
+
+#### 新增功能 (Added)
+- 🛠️ **通用补丁文件提取函数**: 新增 `extract_patch_files()` 函数，支持多种diff格式
+  - 支持 Git 格式 (`--- a/path/to/file`)
+  - 支持传统格式 (`--- path/to/file.orig`)
+  - 支持上下文格式 (`--- linux-4.1.15.orig/path/to/file`)
+  - 支持 Quilt 格式 (`--- old/path/to/file`)
+  - 智能路径清理和前缀移除
+  - 统一的文件提取接口
+
+#### 改进功能 (Improved)
+- 🔢 **版本号同步**: 将工具版本号统一更新到 v8.10.0
+- 📚 **文档同步**: 所有相关文档版本号保持一致
+- 🔄 **版本管理**: 确保工具与文档版本号完全同步
+- 📋 **文件提取优化**: 使用新的通用函数替代原有的 awk 单行处理
+- 🔍 **兼容性增强**: 提升对不同补丁格式的支持和解析能力
+
+#### 技术细节 (Technical Details)
+- **脚本更新**: 主脚本版本号更新为 v8.10.0，新增39行代码
+- **函数重构**: 新增 `extract_patch_files()` 通用函数，支持多种diff格式解析
+- **代码优化**: 冲突检查和文件提取功能使用统一的提取函数
+- **文档更新**: 所有技术文档和说明文件版本号同步
+- **维护优化**: 统一版本管理和代码结构提升维护效率
+
 ## [8.9.0] - 2025-01-13
 
 ### 🌐 国际化增强版本 (Internationalization Enhancement Version)

@@ -1,8 +1,15 @@
-# OpenWrt Kernel CVE Patch Creation Toolchain v8.9.0
+# OpenWrt Kernel CVE Patch Creation Toolchain v8.10.0
 
 A **hybrid architecture high-performance patch management platform** designed specifically for OpenWrt developers. v8.7 builds on v8.6 with **Bash Auto-completion Feature**.
 
 ## 🚀 Version Update History
+
+### v8.10.0 - Patch Parsing Enhancement Version
+- **Universal Patch File Extraction Function**: Added unified parsing function supporting multiple diff formats
+- **Multi-format Compatibility**: Supports Git, traditional, context, Quilt and other patch formats
+- **Smart Path Processing**: Automatically recognizes and cleans various prefix patterns
+- **Code Refactoring Optimization**: Uses unified functions to improve code maintainability
+- **Version Synchronization**: Unified tool version number update to v8.10.0
 
 ### v8.9.0 - Internationalization Enhancement Version
 - **Bilingual Help System**: Added complete English version help documentation
@@ -312,10 +319,10 @@ cd tools/kernel_snapshot_tool
 
 ## 🆚 Version Comparison
 
-| Feature | v7.0.0 (Final Stable) | v8.0.0 (Hybrid Architecture High-Performance) | v8.1.0 (Enhanced Configuration Integration) | v8.2.0 (Changed Files Export) | v8.3.0 (URL Link Support) | v8.4.0 (File List Export) | v8.5.0 (Version Sync Update) | v8.6.0 (New Commands Feature) | v8.7.0 (Bash Auto-completion) | v8.8.0 (Patch Editing Enhancement) | v8.9.0 (Internationalization Enhancement) |
+| Feature | v7.0.0 (Final Stable) | v8.0.0 (Hybrid Architecture High-Performance) | v8.1.0 (Enhanced Configuration Integration) | v8.2.0 (Changed Files Export) | v8.3.0 (URL Link Support) | v8.4.0 (File List Export) | v8.5.0 (Version Sync Update) | v8.6.0 (New Commands Feature) | v8.7.0 (Bash Auto-completion) | v8.8.0 (Patch Editing Enhancement) | v8.9.0 (Internationalization Enhancement) | v8.10.0 (Patch Parsing Enhancement) |
 |---------|------------------------|-----------------------------------------------|---------------------------------------------|------------------------------|----------------------------|----------------------------|------------------------------|-------------------------------|------------------------------|-------------------------------------|---------------------------------------------|
-| **Positioning** | Enterprise Management Platform | Hybrid Architecture High-Performance Patch Management Platform | Smart Configuration Integration Patch Management Platform | Changed Files Export Patch Management Platform | URL Link Support Patch Management Platform | File List Export Patch Management Platform | Version Sync Update Patch Management Platform | New Commands Feature Patch Management Platform | Bash Auto-completion Patch Management Platform | Patch Editing Enhancement Patch Management Platform | Internationalization Enhancement Patch Management Platform |
-| **Lines of Code** | 927 lines | 1202 lines (+275 lines) | 1320 lines (+118 lines) | 1441 lines (+121 lines) | 1547 lines (+106 lines) | 1653 lines (+106 lines) | 1653 lines (sync version) | 1759 lines (+106 lines) | 1865 lines (+106 lines) | 1971 lines (+106 lines) | 2077 lines (+106 lines) |
+| **Positioning** | Enterprise Management Platform | Hybrid Architecture High-Performance Patch Management Platform | Smart Configuration Integration Patch Management Platform | Changed Files Export Patch Management Platform | URL Link Support Patch Management Platform | File List Export Patch Management Platform | Version Sync Update Patch Management Platform | New Commands Feature Patch Management Platform | Bash Auto-completion Patch Management Platform | Patch Editing Enhancement Patch Management Platform | Internationalization Enhancement Patch Management Platform | Patch Parsing Enhancement Patch Management Platform |
+| **Lines of Code** | 927 lines | 1202 lines (+275 lines) | 1320 lines (+118 lines) | 1441 lines (+121 lines) | 1547 lines (+106 lines) | 1653 lines (+106 lines) | 1653 lines (sync version) | 1759 lines (+106 lines) | 1865 lines (+106 lines) | 1971 lines (+106 lines) | 2077 lines (+106 lines) | 2116 lines (+39 lines) |
 | **Core Feature** | Smart Conflict Analysis v7.0 | Git-style Snapshot System + Hybrid Input Architecture | + Smart Configuration Integration + Enhanced Error Handling | + Changed Files Export + Code Review Support | + URL Link Support + Unified Input Interface | + File List Export + Session Management | + Version Number Sync + Documentation Enhancement | + quick-apply + graph Commands | + Bash Auto-completion System | + fold/header Editing Commands | + Bilingual Chinese-English Help System |
 | **Configuration Integration** | None | Basic Support | Smart Global Configuration File Reading | Smart Global Configuration File Reading | Smart Global Configuration File Reading | Smart Global Configuration File Reading | Smart Global Configuration File Reading | Smart Global Configuration File Reading | Smart Global Configuration File Reading | Smart Global Configuration File Reading | Smart Global Configuration File Reading |
 | **Error Handling** | Basic | Improved Error Messages | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions | Detailed Diagnostics + Solution Suggestions |

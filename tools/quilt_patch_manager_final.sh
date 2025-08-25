@@ -1,5 +1,5 @@
 #!/bin/bash
-# 版本: v8.9.0 (国际化增强版本 - 新增中英文双语帮助系统)
+# 版本: v8.10.0 (版本同步更新)
 
 # --- 全局变量与初始化 ---
 # 获取脚本所在目录的绝对路径，确保路径引用的健壮性
@@ -27,7 +27,7 @@ NC=$'\033[0m'
 
 # 工具信息
 TOOL_NAME="OpenWrt Quilt Linux Kernel Patch Manager"
-VERSION="8.9.0"
+VERSION="8.10.0"
 
 # 统一工作目录配置
 MAIN_WORK_DIR="patch_manager_work"
@@ -280,7 +280,7 @@ print_help() {
     printf "    ${GREEN}指定输出:${NC} %s graph-pdf --color platform/patch.patch my_graph\n" "$(basename "$0")"
     printf "    ${GREEN}输出位置:${NC} %s/patches_graph.pdf (默认)\n" "$OUTPUT_DIR"
     printf "\n"
-
+    
     printf "\n${YELLOW}>> 环境与辅助命令${NC}\n"
     printf "  ${CYAN}%-30s${NC} %s\n" "clean" "交互式清理缓存和输出目录"
     printf "    ${GREEN}示例:${NC} %s clean\n" "$(basename "$0")"
@@ -594,6 +594,45 @@ print_help_en() {
     printf "  • Network URL:  https://git.kernel.org/.../patch/?id=abcdef123\n"
     printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     printf "\n"
+}
+
+# 通用的补丁文件提取函数，支持多种diff格式
+extract_patch_files() {
+    local patch_file="$1"
+    if [[ ! -f "$patch_file" ]]; then
+        echo ""
+        return 1
+    fi
+    
+    # 支持多种常见的diff格式:
+    # 1. git format: --- a/path/to/file
+    # 2. traditional format: --- path/to/file.orig
+    # 3. context format: --- linux-4.1.15.orig/path/to/file
+    # 4. quilt format: --- old/path/to/file
+    awk '
+    /^--- / && !/^--- \/dev\/null/ {
+        file = $2
+        # 移除常见的前缀模式
+        if (match(file, /^[ab]\//)) {
+            file = substr(file, 3)  # 移除 a/ 或 b/ 前缀
+        } else if (match(file, /\.orig\//)) {
+            # 处理 .orig/ 格式，提取后面的路径
+            sub(/.*\.orig\//, "", file)
+        } else if (match(file, /^[^\/]*\/[^\/]*\.orig\//)) {
+            # 处理 linux-x.x.x.orig/ 格式
+            sub(/^[^\/]*\/[^\/]*\.orig\//, "", file)
+        } else if (match(file, /^old\//)) {
+            file = substr(file, 5)  # 移除 old/ 前缀
+        }
+        # 如果文件路径仍然包含时间戳等信息，进一步清理
+        if (match(file, /\t/)) {
+            sub(/\t.*/, "", file)  # 移除制表符后的内容（时间戳等）
+        }
+        if (file && file != "/dev/null" && file !~ /^$/) {
+            print file
+        }
+    }
+    ' "$patch_file" | sort -u
 }
 
 # 检查依赖
@@ -1127,7 +1166,7 @@ test_patch_compatibility() {
         log_success "     成功定位到当前架构的补丁目录: $patches_dir"
         
         local new_patch_files
-        new_patch_files=$(awk '/^--- a\// {print $2}' "$patch_file" | sed 's|^a/||' | sort -u)
+        new_patch_files=$(extract_patch_files "$patch_file")
         
         if [[ -z "$new_patch_files" ]]; then
             log_success "     无需执行冲突检查 (原因: 新补丁无文件变更)。"
@@ -1153,7 +1192,7 @@ test_patch_compatibility() {
                     printf "\r     扫描中: [%-50s] %d/%d (%d%%)" "$bar" "$current_pos" "$total_patches" "$percent"
 
                     local old_patch_files
-                    old_patch_files=$(awk '/^--- a\// {print $2}' "$p" | sed 's|^a/||' | sort -u)
+                    old_patch_files=$(extract_patch_files "$p")
                     
                     if [[ -n "$old_patch_files" ]]; then
                         local common_files
@@ -1204,7 +1243,10 @@ test_patch_compatibility() {
         else
             report_name=${identifier:0:7}
         fi
-        local final_report_file="$ORIGINAL_PWD/$OUTPUT_DIR/test-patch-report-${report_name}.log"
+        
+        # 添加时间戳确保每次运行都生成新的日志文件
+        local timestamp=$(date +"%Y%m%d_%H%M%S")
+        local final_report_file="$ORIGINAL_PWD/$OUTPUT_DIR/test-patch-report-${report_name}_${timestamp}.log"
         local temp_log_file
         temp_log_file=$(mktemp "$ORIGINAL_PWD/$SESSION_TMP_DIR_PATTERN/patch_output.XXXXXX")
 
@@ -1220,13 +1262,17 @@ test_patch_compatibility() {
             cat "$temp_log_file" > "$final_report_file"
             
             # 调用新的高效分析函数，并传入安全的会话临时目录
-            analyze_patch_conflicts_v7 "$patch_file" "$kernel_source_dir" "$temp_log_file" "$final_report_file" "$ORIGINAL_PWD/$SESSION_TMP_DIR_PATTERN"
+            log_info "     正在生成智能分析报告..."
+            if analyze_patch_conflicts_v7 "$patch_file" "$kernel_source_dir" "$temp_log_file" "$final_report_file" "$ORIGINAL_PWD/$SESSION_TMP_DIR_PATTERN"; then
+                log_info "智能分析报告已生成。请查看:"
+                printf "  ${GREEN}%s${NC}\n" "$final_report_file"
+            else
+                log_warning "智能分析器执行过程中出现问题，但基础分析日志已保存到:"
+                printf "  ${YELLOW}%s${NC}\n" "$final_report_file"
+            fi
             
             # 清理临时的 dry-run 日志
             rm -f "$temp_log_file"
-
-            log_info "智能分析报告已生成。请查看:"
-            printf "  ${GREEN}%s${NC}\n" "$final_report_file"
             return 1
         fi
     )
@@ -1260,8 +1306,8 @@ extract_files() {
     
     local output_path="$ORIGINAL_PWD/$OUTPUT_DIR/$PATCH_LIST_FILE"
     
-    # 使用 awk 提取更可靠
-    awk '/^--- a\// {print $2}' "$patch_file" | sed 's|^a/||' | sort -u > "$output_path"
+    # 使用通用函数提取，支持多种diff格式
+    extract_patch_files "$patch_file" > "$output_path"
     
     local file_count
     file_count=$(wc -l < "$output_path" | tr -d ' ')

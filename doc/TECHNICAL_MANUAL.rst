@@ -4,7 +4,7 @@ OpenWrt Kernel Patch Management Tools - Technical Manual
 
 :Author: OpenWrt Community
 :Date: |today|
-:Version: 8.9.0
+:Version: 8.10.0
 
 Overview
 ========
